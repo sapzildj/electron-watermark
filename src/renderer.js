@@ -12,6 +12,10 @@ const previewGrid = document.getElementById('previewGrid'); // 있을 경우 동
 
 const wmText = document.getElementById('wmText');
 const fontSize = document.getElementById('fontSize');
+const fontSizeMode = document.getElementById('fontSizeMode');
+const fontSizePct = document.getElementById('fontSizePct');
+const rowFontSizePx = document.getElementById('rowFontSizePx');
+const rowFontSizePct = document.getElementById('rowFontSizePct');
 const textColor = document.getElementById('textColor');
 const fontFamily = document.getElementById('fontFamily');
 const fontFamilySelect = document.getElementById('fontFamilySelect');
@@ -44,6 +48,8 @@ function getCurrentOptionsSnapshot() {
   return {
     text: (wmText.value || '').trim(),
     fontSize: Number(fontSize.value) || 36,
+    fontSizeMode: (fontSizeMode?.value || 'percent'),
+    fontSizePct: (Number.isFinite(Number(fontSizePct?.value)) ? Number(fontSizePct?.value) : 5),
     textColor: (textColor?.value || '#ffffff'),
     fontFamily: (fontFamily?.value || "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"),
     opacity: Math.max(0, Math.min(1, Number(opacity.value) || 0.35)),
@@ -66,9 +72,17 @@ function applyOptionsToUI(opts) {
   if (!opts) return;
   if (typeof opts.text === 'string') wmText.value = opts.text;
   if (Number.isFinite(opts.fontSize)) fontSize.value = String(opts.fontSize);
+  if (typeof opts.fontSizeMode === 'string' && fontSizeMode) fontSizeMode.value = opts.fontSizeMode;
+  if (Number.isFinite(opts.fontSizePct) && fontSizePct) fontSizePct.value = String(opts.fontSizePct);
   if (typeof opts.textColor === 'string' && textColor) textColor.value = opts.textColor;
   if (typeof opts.fontFamily === 'string' && fontFamily) fontFamily.value = opts.fontFamily;
   if (Number.isFinite(opts.opacity)) opacity.value = String(opts.opacity);
+// Helper to toggle font size mode visibility
+function updateFontSizeModeVisibility() {
+  const mode = fontSizeMode?.value || 'percent';
+  if (rowFontSizePx) rowFontSizePx.style.display = (mode === 'absolute') ? 'flex' : 'none';
+  if (rowFontSizePct) rowFontSizePct.style.display = (mode === 'percent') ? 'flex' : 'none';
+}
   if (typeof opts.position === 'string') position.value = opts.position;
   if (Number.isFinite(opts.margin)) margin.value = String(opts.margin);
   if (Number.isFinite(opts.maxWidth)) maxWidth.value = String(opts.maxWidth);
@@ -318,37 +332,31 @@ function renderInteractivePreviews(dataUrls, filePaths, originalImages) {
 async function calculateActualWatermarkSize(img, filePath) {
   try {
     const opts = await readOptionsForPreview(filePath);
-    
     // 실제 이미지 크기 기준으로 계산
     const originalImg = new Image();
     return new Promise((resolve) => {
       originalImg.onload = () => {
         const imgRect = img.getBoundingClientRect();
         const previewScale = imgRect.width / originalImg.width;
-        
-        // 백엔드와 동일한 폰트 스케일링 로직 적용
-        const baseW = originalImg.width;
-        const basePreviewW = 800; // 백엔드에서 사용하는 기본 미리보기 폭
-        const fontScale = baseW / basePreviewW;
-        
-        const baseFontSize = opts.fontSize || 36;
-        const scaledFontSize = baseFontSize * fontScale;
-        
+
+        const shortEdge = Math.min(originalImg.width, originalImg.height);
+        const mode = (opts.fontSizeMode || 'percent');
+        let effFont = 36;
+        if (mode === 'percent') {
+          const pct = Number(opts.fontSizePct) || 5;
+          effFont = Math.max(12, Math.min(256, Math.round(shortEdge * (pct / 100))));
+        } else {
+          effFont = Math.max(12, Math.min(256, Math.round(Number(opts.fontSize) || 36)));
+        }
+
         // 스케일링된 폰트로 텍스트 크기 측정
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         const text = opts.text || '';
-        
-        ctx.font = `${scaledFontSize}px ${opts.fontFamily || 'Arial'}`;
+        ctx.font = `${effFont}px ${opts.fontFamily || 'Arial'}`;
         const textMetrics = ctx.measureText(text);
-        
-        // 미리보기 크기로 변환
         const actualWidth = textMetrics.width * previewScale;
-        const actualHeight = scaledFontSize * previewScale * 1.2;
-        
-        console.log(`Font scaling: ${baseFontSize} → ${Math.round(scaledFontSize)} (scale: ${fontScale.toFixed(3)})`);
-        console.log(`Text width: ${Math.round(textMetrics.width)} → ${Math.round(actualWidth)} (preview scale: ${previewScale.toFixed(3)})`);
-        
+        const actualHeight = effFont * previewScale * 1.2;
         resolve({ width: actualWidth, height: actualHeight, scale: previewScale });
       };
       originalImg.src = img.src;
@@ -359,17 +367,14 @@ async function calculateActualWatermarkSize(img, filePath) {
     const text = document.getElementById('wmText')?.value || '';
     const fontFamily = document.getElementById('fontFamily')?.value || 'Arial';
     const imgRect = img.getBoundingClientRect();
-    
     // 기본 이미지 크기를 추정 (예: 800px 기준)
     const estimatedOriginalWidth = 800;
     const fontScale = estimatedOriginalWidth / 800; // 1.0
     const scaledFontSize = fontSize * fontScale;
-    
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     ctx.font = `${scaledFontSize}px ${fontFamily}`;
     const textMetrics = ctx.measureText(text);
-    
     return {
       width: textMetrics.width,
       height: scaledFontSize * 1.2,
@@ -635,7 +640,7 @@ if (btnPreview) {
 
 
 // ===== Auto-restore on load =====
-(function init() {
+ (function init() {
   // 1) 옵션 복원
   loadOptions();
 
@@ -719,3 +724,12 @@ if (btnPreview) {
     });
   }
 })();
+
+  if (fontSizeMode) {
+    fontSizeMode.addEventListener('change', () => {
+      updateFontSizeModeVisibility();
+      saveOptions();
+    });
+    // 초기 가시성
+    updateFontSizeModeVisibility();
+  }

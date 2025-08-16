@@ -10,6 +10,20 @@ function clamp(num, min, max) {
   return Math.max(min, Math.min(max, num));
 }
 
+// 이미지 크기에 따라 일관된 텍스트 크기 계산
+// mode === 'percent'  -> shortEdge * (fontSizePct / 100)
+// mode === 'absolute' -> fontSize (px)
+function effectiveFontSize(baseW, baseH, { fontSize, fontSizeMode, fontSizePct }) {
+  const shortEdge = Math.max(1, Math.min(baseW || 0, baseH || 0));
+  if ((fontSizeMode || 'percent') === 'percent') {
+    const pct = Number(fontSizePct);
+    const raw = (isFinite(pct) ? pct : 5) / 100 * shortEdge;
+    return clamp(Math.round(raw), 12, 256);
+  } else {
+    return clamp(Math.round(Number(fontSize) || 36), 12, 256);
+  }
+}
+
 // HEX 컬러 파싱 -> { r,g,b }
 function parseHexColor(hex) {
   if (typeof hex !== 'string') return { r: 255, g: 255, b: 255 };
@@ -241,21 +255,24 @@ async function watermarkOne(inputPath, outputPath, opts) {
   const boxW = clamp(baseW - m * 2, 1, baseW);   // 최소 1 보장
   const boxH = clamp(baseH - m * 2, 1, baseH);
 
+  const effFont = effectiveFontSize(baseW, baseH, { fontSize, fontSizeMode: opts.fontSizeMode, fontSizePct: opts.fontSizePct });
+  const effOpacity = clamp(Number(opacity) || 0.35, 0, 1);
+
   const composites = [];
 
   // 3) 텍스트 SVG (이미지 크기에 맞춰 스케일링)
   if (text) {
     const rawSvg = makeTextSVG(
       text,
-      Number(fontSize) || 36,
-      clamp(Number(opacity) || 0.35, 0, 1),
+      effFont,
+      effOpacity,
       boxW,
       textColor,
       fontFamily,
       { color: shadowColor, offsetX: shadowOffsetX, offsetY: shadowOffsetY, blur: shadowBlur },
       { color: outlineColor, width: outlineWidth },
       baseW,  // 현재 이미지 너비
-      800     // 기준 너비 (미리보기 크기)
+      baseW   // 기준 너비를 동일하게 주어 내부 스케일링 무효화
     );
     // SVG도 합성 전 안전 박스 크기(boxW x boxH) 안으로 축소
     const safeSvg = await fitOverlayInside(rawSvg, boxW, boxH);
@@ -292,7 +309,7 @@ async function watermarkOne(inputPath, outputPath, opts) {
       left: logoLeft,
       top: logoTop,
       blend: 'over',
-      opacity: clamp(Number(opacity) || 0.35, 0, 1),
+      opacity: effOpacity,
     });
   }
 
@@ -383,20 +400,23 @@ async function generatePreviewBuffer(inputPath, options, previewWidth = 800) {
   const boxW = clamp(baseW - m * 2, 1, baseW);
   const boxH = clamp(baseH - m * 2, 1, baseH);
 
+  const effFont = effectiveFontSize(baseW, baseH, { fontSize, fontSizeMode: options.fontSizeMode, fontSizePct: options.fontSizePct });
+  const effOpacity = clamp(Number(opacity) || 0.35, 0, 1);
+
   const composites = [];
 
   if (text) {
     const rawSvg = makeTextSVG(
       text,
-      Number(fontSize) || 36,
-      clamp(Number(opacity) || 0.35, 0, 1),
+      effFont,
+      effOpacity,
       boxW,
       textColor,
       fontFamily,
       { color: shadowColor, offsetX: shadowOffsetX, offsetY: shadowOffsetY, blur: shadowBlur },
       { color: outlineColor, width: outlineWidth },
       baseW,  // 현재 이미지 너비
-      800     // 기준 너비 (미리보기 크기)
+      baseW   // 기준 너비를 동일하게 주어 내부 스케일링 무효화
     );
     const safeSvg = await fitOverlayInside(rawSvg, boxW, boxH);
 
@@ -414,7 +434,7 @@ async function generatePreviewBuffer(inputPath, options, previewWidth = 800) {
     const safeLogo = await fitOverlayInside(logoBuf, boxW, boxH);
     const lmeta = await sharp(safeLogo).metadata();
     const { left: logoLeft, top: logoTop } = computeLeftTop(baseW, baseH, lmeta.width || 0, lmeta.height || 0, position, m, customX, customY);
-    composites.push({ input: safeLogo, left: logoLeft, top: logoTop, blend: 'over', opacity: clamp(Number(opacity) || 0.35, 0, 1) });
+    composites.push({ input: safeLogo, left: logoLeft, top: logoTop, blend: 'over', opacity: effOpacity });
   }
 
   const pipeline = composites.length > 0 ? base.composite(composites) : base;
@@ -457,20 +477,23 @@ async function getWatermarkPosition(inputPath, options, previewWidth = 800) {
   const boxW = clamp(baseW - m * 2, 1, baseW);
   const boxH = clamp(baseH - m * 2, 1, baseH);
 
+  const effFont = effectiveFontSize(baseW, baseH, { fontSize, fontSizeMode: options.fontSizeMode, fontSizePct: options.fontSizePct });
+  const effOpacity = clamp(Number(opacity) || 0.35, 0, 1);
+
   let watermarkInfo = null;
 
   if (text) {
     const rawSvg = makeTextSVG(
       text,
-      Number(fontSize) || 36,
-      clamp(Number(opacity) || 0.35, 0, 1),
+      effFont,
+      effOpacity,
       boxW,
       textColor,
       fontFamily,
       { color: shadowColor, offsetX: shadowOffsetX, offsetY: shadowOffsetY, blur: shadowBlur },
       { color: outlineColor, width: outlineWidth },
       baseW,  // 현재 이미지 너비
-      800     // 기준 너비 (미리보기 크기)
+      baseW   // 기준 너비를 동일하게 주어 내부 스케일링 무효화
     );
     const safeSvg = await fitOverlayInside(rawSvg, boxW, boxH);
 
