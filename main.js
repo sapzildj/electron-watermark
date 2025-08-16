@@ -3,6 +3,7 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { processFolderImages, generatePreviewBuffer } = require('./src/watermark');
+const fontList = require('font-list');
 
 let mainWindow;
 
@@ -73,4 +74,14 @@ ipcMain.handle('preview-image', async (_evt, payload) => {
   const buf = await generatePreviewBuffer(filePath, options, 800); // 프리뷰 가로 800px
   const base64 = buf.toString('base64');
   return `data:image/png;base64,${base64}`;
+});
+
+// IPC: system font list
+ipcMain.handle('list-system-fonts', async () => {
+  try {
+    const fonts = await fontList.getFonts();
+    return fonts; // array of font family names
+  } catch (e) {
+    return [];
+  }
 });

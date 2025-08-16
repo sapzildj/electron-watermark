@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "electron": "^31.0.0",
+    "font-list": "^1.5.1",
     "sharp": "^0.33.3"
   }
 }

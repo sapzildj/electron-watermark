@@ -261,6 +261,18 @@ if (btnPreview) {
     el.addEventListener(ev, saveOptions);
   });
 
+  // 4) 시스템 폰트 목록 로드하여 datalist 채우기
+  const dl = document.getElementById('fontList');
+  if (dl && window.api?.listSystemFonts) {
+    window.api.listSystemFonts().then(fonts => {
+      dl.innerHTML = '';
+      (fonts || []).slice(0, 300).forEach(f => {
+        const opt = document.createElement('option');
+        opt.value = f;
+        dl.appendChild(opt);
+      });
+    }).catch(() => {});
+  }
   // 라이트박스 닫기 (배경 클릭)
   const lb = document.getElementById('lightbox');
   if (lb) {

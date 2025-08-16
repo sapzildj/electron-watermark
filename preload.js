@@ -13,4 +13,5 @@ contextBridge.exposeInMainWorld('api', {
   // 미리보기용 추가 기능
   listImages: (folder) => ipcRenderer.invoke('list-images', folder),
   previewImage: (payload) => ipcRenderer.invoke('preview-image', payload),
+  listSystemFonts: () => ipcRenderer.invoke('list-system-fonts'),
 });

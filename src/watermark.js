@@ -10,6 +10,65 @@ function clamp(num, min, max) {
   return Math.max(min, Math.min(max, num));
 }
 
+// HEX 컬러 파싱 -> { r,g,b }
+function parseHexColor(hex) {
+  if (typeof hex !== 'string') return { r: 255, g: 255, b: 255 };
+  let h = hex.trim();
+  if (h.startsWith('#')) h = h.slice(1);
+  if (h.length === 3) {
+    const r = parseInt(h[0] + h[0], 16);
+    const g = parseInt(h[1] + h[1], 16);
+    const b = parseInt(h[2] + h[2], 16);
+    return { r, g, b };
+  }
+  if (h.length >= 6) {
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    return { r, g, b };
+  }
+  return { r: 255, g: 255, b: 255 };
+}
+
+// 상대 휘도(간단 버전, 0~255 스케일)
+function luminanceFromRGB(r, g, b) {
+  return 0.299 * r + 0.587 * g + 0.114 * b;
+}
+
+// 특정 위치 후보에 대한 영역 평균 밝기 계산
+async function computeRegionLuminance(baseSharp, left, top, width, height) {
+  if (width <= 0 || height <= 0) return 0;
+  const region = await baseSharp.clone().extract({ left, top, width, height }).stats();
+  // stats.channels[0]=red, [1]=green, [2]=blue
+  const r = region.channels?.[0]?.mean ?? 255;
+  const g = region.channels?.[1]?.mean ?? 255;
+  const b = region.channels?.[2]?.mean ?? 255;
+  return luminanceFromRGB(r, g, b);
+}
+
+// position === 'auto' 일 때 최적 위치 선택
+async function pickAutoPosition(baseSharp, baseW, baseH, overlayW, overlayH, margin, textColor) {
+  const m = clamp(Number(margin) || 0, 0, 1000);
+  const candidates = ['southeast', 'southwest', 'northeast', 'northwest', 'center'];
+  const textRGB = parseHexColor(textColor || '#ffffff');
+  const textL = luminanceFromRGB(textRGB.r, textRGB.g, textRGB.b);
+
+  let best = 'southeast';
+  let bestScore = -Infinity;
+
+  for (const pos of candidates) {
+    let { left, top } = computeLeftTop(baseW, baseH, overlayW, overlayH, pos, m);
+    // 영역 내 평균 밝기
+    const regionL = await computeRegionLuminance(baseSharp, left, top, overlayW, overlayH);
+    const score = Math.abs(textL - regionL); // 대비가 클수록 가독성↑
+    if (score > bestScore) {
+      bestScore = score;
+      best = pos;
+    }
+  }
+  return best;
+}
+
 // 텍스트용 SVG를 "최대 폭" 안으로 생성
 function makeTextSVG(text, fontSize, opacity, maxWidthPx, textColor, fontFamily, shadow, outline) {
   const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -145,7 +204,11 @@ async function watermarkOne(inputPath, outputPath, opts) {
     const safeSvg = await fitOverlayInside(rawSvg, boxW, boxH);
 
     const svgMeta = await sharp(safeSvg).metadata();
-    const { left: svgLeft, top: svgTop } = computeLeftTop(baseW, baseH, svgMeta.width || 0, svgMeta.height || 0, position, m);
+    let pos = position;
+    if (pos === 'auto') {
+      pos = await pickAutoPosition(img, baseW, baseH, svgMeta.width || 0, svgMeta.height || 0, m, textColor);
+    }
+    const { left: svgLeft, top: svgTop } = computeLeftTop(baseW, baseH, svgMeta.width || 0, svgMeta.height || 0, pos, m);
     composites.push({
       input: safeSvg,
       left: svgLeft,
@@ -237,7 +300,11 @@ async function generatePreviewBuffer(inputPath, options, previewWidth = 800) {
     const safeSvg = await fitOverlayInside(rawSvg, boxW, boxH);
 
     const svgMeta = await sharp(safeSvg).metadata();
-    const { left: svgLeft, top: svgTop } = computeLeftTop(baseW, baseH, svgMeta.width || 0, svgMeta.height || 0, position, m);
+    let pos = position;
+    if (pos === 'auto') {
+      pos = await pickAutoPosition(base, baseW, baseH, svgMeta.width || 0, svgMeta.height || 0, m, textColor);
+    }
+    const { left: svgLeft, top: svgTop } = computeLeftTop(baseW, baseH, svgMeta.width || 0, svgMeta.height || 0, pos, m);
     composites.push({ input: safeSvg, left: svgLeft, top: svgTop });
   }
 
