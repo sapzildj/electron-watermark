@@ -14,6 +14,7 @@ const wmText = document.getElementById('wmText');
 const fontSize = document.getElementById('fontSize');
 const textColor = document.getElementById('textColor');
 const fontFamily = document.getElementById('fontFamily');
+const fontFamilySelect = document.getElementById('fontFamilySelect');
 const opacity = document.getElementById('opacity');
 const position = document.getElementById('position');
 const margin = document.getElementById('margin');
@@ -263,14 +264,31 @@ if (btnPreview) {
 
   // 4) 시스템 폰트 목록 로드하여 datalist 채우기
   const dl = document.getElementById('fontList');
-  if (dl && window.api?.listSystemFonts) {
+  if ((dl || fontFamilySelect) && window.api?.listSystemFonts) {
     window.api.listSystemFonts().then(fonts => {
-      dl.innerHTML = '';
-      (fonts || []).slice(0, 300).forEach(f => {
-        const opt = document.createElement('option');
-        opt.value = f;
-        dl.appendChild(opt);
-      });
+      const list = (fonts || []).slice(0, 500);
+      if (dl) {
+        dl.innerHTML = '';
+        list.forEach(f => {
+          const opt = document.createElement('option');
+          opt.value = f;
+          dl.appendChild(opt);
+        });
+      }
+      if (fontFamilySelect) {
+        fontFamilySelect.innerHTML = '<option value="">— System Fonts —</option>';
+        list.forEach(f => {
+          const o = document.createElement('option');
+          o.value = f;
+          o.textContent = f;
+          fontFamilySelect.appendChild(o);
+        });
+        fontFamilySelect.addEventListener('change', () => {
+          if (!fontFamily) return;
+          if (fontFamilySelect.value) fontFamily.value = fontFamilySelect.value;
+          saveOptions();
+        });
+      }
     }).catch(() => {});
   }
   // 라이트박스 닫기 (배경 클릭)
