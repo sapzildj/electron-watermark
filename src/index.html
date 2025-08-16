@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Watermark</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Helvetica Neue', Arial, sans-serif; margin: 24px; }
+    .row { display: flex; gap: 12px; align-items: center; margin: 8px 0; }
+    label { width: 160px; font-weight: 600; }
+    input[type="text"], textarea, select { flex: 1; padding: 8px; }
+    input[type="file"] { flex: 1; }
+    .btn { padding: 10px 14px; cursor: pointer; border: 1px solid #ccc; border-radius: 10px; background: #f5f5f7; }
+    .btn.primary { background: #1f6feb; color: #fff; border-color: #1f6feb; }
+    .progress { margin-top: 16px; height: 8px; background: #e5e7eb; border-radius: 9999px; overflow: hidden; }
+    .bar { height: 100%; width: 0%; background: #10b981; }
+    .muted { color: #6b7280; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; }
+  </style>
+</head>
+<body>
+  <h1>Batch Watermark (macOS)</h1>
+  <div class="card">
+    <div class="row">
+      <label>Target folder</label>
+      <button id="btnChoose" class="btn">Choose…</button>
+      <span id="folderPath" class="muted"></span>
+    </div>
+
+    <div class="grid">
+      <div>
+        <h3>Watermark options</h3>
+        <div class="row"><label>Text</label><input id="wmText" type="text" placeholder="e.g. © My Brand 2025" /></div>
+        <div class="row"><label>Font Size</label><input id="fontSize" type="number" value="36" min="8" max="256" /></div>
+        <div class="row"><label>Text Color</label><input id="textColor" type="color" value="#ffffff" /></div>
+        <div class="row"><label>Font Family</label><input id="fontFamily" type="text" placeholder="-apple-system, Segoe UI, Roboto, Arial, sans-serif" /></div>
+        <div class="row"><label>Opacity (0-1)</label><input id="opacity" type="number" step="0.05" value="0.35" min="0" max="1" /></div>
+        <div class="row"><label>Position</label>
+          <select id="position">
+            <option value="southeast">Bottom-Right</option>
+            <option value="southwest">Bottom-Left</option>
+            <option value="northeast">Top-Right</option>
+            <option value="northwest">Top-Left</option>
+            <option value="center">Center</option>
+          </select>
+        </div>
+        <div class="row"><label>Margin (px)</label><input id="margin" type="number" value="24" min="0" max="200" /></div>
+        <div class="row"><label>Max Width (px)</label><input id="maxWidth" type="number" value="0" /></div>
+        <div class="row"><label>Shadow Color</label><input id="shadowColor" type="color" value="#000000" /></div>
+        <div class="row"><label>Shadow Offset X</label><input id="shadowOffsetX" type="number" value="2" /></div>
+        <div class="row"><label>Shadow Offset Y</label><input id="shadowOffsetY" type="number" value="2" /></div>
+        <div class="row"><label>Shadow Blur</label><input id="shadowBlur" type="number" value="0" min="0" max="20" /></div>
+        <div class="row"><label>Logo (PNG)</label><input id="logo" type="file" accept="image/png" /></div>
+      </div>
+
+      <div>
+        <h3>Hints</h3>
+        <p class="muted">Tip: Keep opacity between 0.25–0.45 for subtle yet visible marks. Use margins to avoid edges.</p>
+      </div>
+    </div>
+
+    <div class="row">
+      <button id="btnRun" class="btn primary">Run</button>
+      <button id="btnPreview" class="btn">Preview</button>
+      <span id="status" class="muted"></span>
+    </div>
+
+    <div id="previewGrid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(260px,1fr)); gap:12px; margin-top:16px;"></div>
+    <div class="progress"><div id="bar" class="bar"></div></div>
+    <pre id="log" style="margin-top:12px; background:#0b1021; color:#c5d0ff; padding:12px; border-radius:10px; max-height:220px; overflow:auto;"></pre>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
