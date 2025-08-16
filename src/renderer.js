@@ -15,6 +15,7 @@ const fontSize = document.getElementById('fontSize');
 const textColor = document.getElementById('textColor');
 const fontFamily = document.getElementById('fontFamily');
 const fontFamilySelect = document.getElementById('fontFamilySelect');
+const fontPreview = document.getElementById('fontPreview');
 const opacity = document.getElementById('opacity');
 const position = document.getElementById('position');
 const margin = document.getElementById('margin');
@@ -262,7 +263,7 @@ if (btnPreview) {
     el.addEventListener(ev, saveOptions);
   });
 
-  // 4) 시스템 폰트 목록 로드하여 datalist 채우기
+  // 4) 시스템 폰트 목록 로드하여 datalist/셀렉트 채우기 + 미리보기
   const dl = document.getElementById('fontList');
   if ((dl || fontFamilySelect) && window.api?.listSystemFonts) {
     window.api.listSystemFonts().then(fonts => {
@@ -283,14 +284,28 @@ if (btnPreview) {
           o.textContent = f;
           fontFamilySelect.appendChild(o);
         });
+        const applyPreview = (family) => {
+          if (!fontPreview) return;
+          const familyCss = family && family.indexOf(' ') >= 0 && !family.includes(',') ? `'${family}'` : family;
+          fontPreview.style.fontFamily = familyCss || "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+        };
+        // select 변경 시
         fontFamilySelect.addEventListener('change', () => {
           if (!fontFamily) return;
           if (fontFamilySelect.value) fontFamily.value = fontFamilySelect.value;
+          applyPreview(fontFamilySelect.value);
           saveOptions();
         });
+        // input 타이핑 시도 미리보기
+        if (fontFamily) {
+          fontFamily.addEventListener('input', () => applyPreview(fontFamily.value));
+        }
+        // 초기 미리보기
+        applyPreview(fontFamily?.value);
       }
     }).catch(() => {});
   }
+
   // 라이트박스 닫기 (배경 클릭)
   const lb = document.getElementById('lightbox');
   if (lb) {
