@@ -16,7 +16,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
-    title: 'Watermark (Ollama-enabled)'
+    title: 'Watermark'
   });
 
   mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));

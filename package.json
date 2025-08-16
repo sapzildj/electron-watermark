@@ -1,5 +1,5 @@
 {
-  "name": "electron-watermark-ollama",
+  "name": "electron-watermark",
   "version": "1.0.0",
   "private": true,
   "main": "main.js",
