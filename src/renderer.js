@@ -44,11 +44,11 @@ function getCurrentOptionsSnapshot() {
     margin: Number(margin.value) || 24,
     maxWidth: Number(maxWidth.value) || 0,
     shadowColor: (shadowColor?.value || '#000000'),
-    shadowOffsetX: Number(shadowOffsetX?.value) || 2,
-    shadowOffsetY: Number(shadowOffsetY?.value) || 2,
-    shadowBlur: Number(shadowBlur?.value) || 0,
+    shadowOffsetX: (Number.isFinite(Number(shadowOffsetX?.value)) ? Number(shadowOffsetX?.value) : 2),
+    shadowOffsetY: (Number.isFinite(Number(shadowOffsetY?.value)) ? Number(shadowOffsetY?.value) : 2),
+    shadowBlur: (Number.isFinite(Number(shadowBlur?.value)) ? Number(shadowBlur?.value) : 0),
     outlineColor: (outlineColor?.value || '#000000'),
-    outlineWidth: Number(outlineWidth?.value) || 0,
+    outlineWidth: (Number.isFinite(Number(outlineWidth?.value)) ? Number(outlineWidth?.value) : 0),
     // logo 파일은 보안상 경로/값 저장 X (브라우저가 file input 복원을 금지)
   };
 }

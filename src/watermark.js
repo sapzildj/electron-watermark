@@ -79,7 +79,8 @@ function makeTextSVG(text, fontSize, opacity, maxWidthPx, textColor, fontFamily,
   const s = shadow || { color: '#000000', offsetX: 2, offsetY: 2, blur: 0 };
   const o = outline || { color: '', width: 0 };
   const filterId = 'f1';
-  const shadowFilter = s && (s.blur > 0 || s.offsetX || s.offsetY) ? `
+  const hasShadow = (Number(s.blur) > 0) || (Number(s.offsetX) !== 0) || (Number(s.offsetY) !== 0);
+  const shadowFilter = s && hasShadow ? `
       <filter id="${filterId}" x="-50%" y="-50%" width="200%" height="200%">
         <feDropShadow dx="${Number(s.offsetX)||0}" dy="${Number(s.offsetY)||0}" stdDeviation="${Number(s.blur)||0}" flood-color="${s.color||'#000'}" flood-opacity="${opacity}" />
       </filter>` : '';
@@ -89,9 +90,9 @@ function makeTextSVG(text, fontSize, opacity, maxWidthPx, textColor, fontFamily,
   <svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}">
     <defs>${shadowFilter}</defs>
     <style>
-      .t { font: ${fontSize}px ${ff}; fill: ${color}; fill-opacity: ${opacity}; ${strokeStyle} }
+      .t { font: ${fontSize}px ${ff}; fill: ${color}; ${strokeStyle} }
     </style>
-    <text x="0" y="${Math.round((fontSize || 36) * 1.1)}" class="t" ${filterAttr}>${esc(text)}</text>
+    <text x="0" y="${Math.round((fontSize || 36) * 1.1)}" class="t" ${filterAttr} fill-opacity="${opacity}">${esc(text)}</text>
   </svg>`);
 }
 
