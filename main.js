@@ -76,6 +76,13 @@ ipcMain.handle('preview-image', async (_evt, payload) => {
   return `data:image/png;base64,${base64}`;
 });
 
+ipcMain.handle('get-watermark-position', async (_evt, payload) => {
+  const { filePath, options } = payload;
+  const { getWatermarkPosition } = require('./src/watermark');
+  const position = await getWatermarkPosition(filePath, options, 800);
+  return position;
+});
+
 // IPC: system font list
 ipcMain.handle('list-system-fonts', async () => {
   try {
