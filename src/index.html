@@ -17,6 +17,8 @@
     .muted { color: #6b7280; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
     .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; }
+    .lightbox { position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: none; align-items: center; justify-content: center; z-index: 9999; }
+    .lightbox img { max-width: 90vw; max-height: 90vh; box-shadow: 0 10px 40px rgba(0,0,0,0.5); border-radius: 10px; }
   </style>
 </head>
 <body>
@@ -34,7 +36,16 @@
         <div class="row"><label>Text</label><input id="wmText" type="text" placeholder="e.g. © My Brand 2025" /></div>
         <div class="row"><label>Font Size</label><input id="fontSize" type="number" value="36" min="8" max="256" /></div>
         <div class="row"><label>Text Color</label><input id="textColor" type="color" value="#ffffff" /></div>
-        <div class="row"><label>Font Family</label><input id="fontFamily" type="text" placeholder="-apple-system, Segoe UI, Roboto, Arial, sans-serif" /></div>
+        <div class="row"><label>Font Family</label>
+          <input id="fontFamily" type="text" list="fontList" placeholder="-apple-system, Segoe UI, Roboto, Arial, sans-serif" />
+          <datalist id="fontList">
+            <option value="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"></option>
+            <option value="Arial, Helvetica, sans-serif"></option>
+            <option value="'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"></option>
+            <option value="'Noto Sans KR', Apple SD Gothic Neo, sans-serif"></option>
+            <option value="'Nanum Gothic', sans-serif"></option>
+          </datalist>
+        </div>
         <div class="row"><label>Opacity (0-1)</label><input id="opacity" type="number" step="0.05" value="0.35" min="0" max="1" /></div>
         <div class="row"><label>Position</label>
           <select id="position">
@@ -51,6 +62,8 @@
         <div class="row"><label>Shadow Offset X</label><input id="shadowOffsetX" type="number" value="2" /></div>
         <div class="row"><label>Shadow Offset Y</label><input id="shadowOffsetY" type="number" value="2" /></div>
         <div class="row"><label>Shadow Blur</label><input id="shadowBlur" type="number" value="0" min="0" max="20" /></div>
+        <div class="row"><label>Outline Color</label><input id="outlineColor" type="color" value="#000000" /></div>
+        <div class="row"><label>Outline Width</label><input id="outlineWidth" type="number" value="0" min="0" max="10" /></div>
         <div class="row"><label>Logo (PNG)</label><input id="logo" type="file" accept="image/png" /></div>
       </div>
 
@@ -67,6 +80,7 @@
     </div>
 
     <div id="previewGrid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(260px,1fr)); gap:12px; margin-top:16px;"></div>
+    <div id="lightbox" class="lightbox"><img id="lightboxImg" src="" alt="preview" /></div>
     <div class="progress"><div id="bar" class="bar"></div></div>
     <pre id="log" style="margin-top:12px; background:#0b1021; color:#c5d0ff; padding:12px; border-radius:10px; max-height:220px; overflow:auto;"></pre>
   </div>

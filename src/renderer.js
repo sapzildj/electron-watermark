@@ -22,6 +22,8 @@ const shadowColor = document.getElementById('shadowColor');
 const shadowOffsetX = document.getElementById('shadowOffsetX');
 const shadowOffsetY = document.getElementById('shadowOffsetY');
 const shadowBlur = document.getElementById('shadowBlur');
+const outlineColor = document.getElementById('outlineColor');
+const outlineWidth = document.getElementById('outlineWidth');
 const logo = document.getElementById('logo');
 
 // ===== Persistence Keys =====
@@ -45,6 +47,8 @@ function getCurrentOptionsSnapshot() {
     shadowOffsetX: Number(shadowOffsetX?.value) || 2,
     shadowOffsetY: Number(shadowOffsetY?.value) || 2,
     shadowBlur: Number(shadowBlur?.value) || 0,
+    outlineColor: (outlineColor?.value || '#000000'),
+    outlineWidth: Number(outlineWidth?.value) || 0,
     // logo 파일은 보안상 경로/값 저장 X (브라우저가 file input 복원을 금지)
   };
 }
@@ -63,6 +67,8 @@ function applyOptionsToUI(opts) {
   if (Number.isFinite(opts.shadowOffsetX) && shadowOffsetX) shadowOffsetX.value = String(opts.shadowOffsetX);
   if (Number.isFinite(opts.shadowOffsetY) && shadowOffsetY) shadowOffsetY.value = String(opts.shadowOffsetY);
   if (Number.isFinite(opts.shadowBlur) && shadowBlur) shadowBlur.value = String(opts.shadowBlur);
+  if (typeof opts.outlineColor === 'string' && outlineColor) outlineColor.value = opts.outlineColor;
+  if (Number.isFinite(opts.outlineWidth) && outlineWidth) outlineWidth.value = String(opts.outlineWidth);
 }
 
 function saveOptions() {
@@ -193,6 +199,14 @@ function renderPreviews(dataUrls, filePaths) {
     img.src = url;
     img.style.display = 'block';
     img.style.width = '100%';
+    img.style.cursor = 'zoom-in';
+    img.addEventListener('click', () => {
+      const lb = document.getElementById('lightbox');
+      const lbImg = document.getElementById('lightboxImg');
+      if (!lb || !lbImg) return;
+      lbImg.src = url;
+      lb.style.display = 'flex';
+    });
 
     card.appendChild(cap);
     card.appendChild(img);
@@ -241,9 +255,17 @@ if (btnPreview) {
   }
 
   // 3) 입력 변경 시 자동 저장 (디바운스 없이 단순 처리)
-  [wmText, fontSize, textColor, fontFamily, opacity, position, margin, maxWidth, shadowColor, shadowOffsetX, shadowOffsetY, shadowBlur].forEach(el => {
+  [wmText, fontSize, textColor, fontFamily, opacity, position, margin, maxWidth, shadowColor, shadowOffsetX, shadowOffsetY, shadowBlur, outlineColor, outlineWidth].forEach(el => {
     if (!el) return;
     const ev = el.tagName === 'SELECT' ? 'change' : 'input';
     el.addEventListener(ev, saveOptions);
   });
+
+  // 라이트박스 닫기 (배경 클릭)
+  const lb = document.getElementById('lightbox');
+  if (lb) {
+    lb.addEventListener('click', (e) => {
+      if (e.target === lb) lb.style.display = 'none';
+    });
+  }
 })();

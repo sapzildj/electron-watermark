@@ -11,24 +11,26 @@ function clamp(num, min, max) {
 }
 
 // 텍스트용 SVG를 "최대 폭" 안으로 생성
-function makeTextSVG(text, fontSize, opacity, maxWidthPx, textColor, fontFamily, shadow) {
+function makeTextSVG(text, fontSize, opacity, maxWidthPx, textColor, fontFamily, shadow, outline) {
   const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const svgW = clamp(Math.floor(maxWidthPx || 400), 50, 10000);    // 최소 50px
   const svgH = clamp(Math.floor((fontSize || 36) * 1.6), 30, 2000); // 대략 줄 높이
   const color = (textColor || '#ffffff');
   const ff = (fontFamily || "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif");
   const s = shadow || { color: '#000000', offsetX: 2, offsetY: 2, blur: 0 };
+  const o = outline || { color: '', width: 0 };
   const filterId = 'f1';
   const shadowFilter = s && (s.blur > 0 || s.offsetX || s.offsetY) ? `
       <filter id="${filterId}" x="-50%" y="-50%" width="200%" height="200%">
         <feDropShadow dx="${Number(s.offsetX)||0}" dy="${Number(s.offsetY)||0}" stdDeviation="${Number(s.blur)||0}" flood-color="${s.color||'#000'}" flood-opacity="${opacity}" />
       </filter>` : '';
   const filterAttr = shadowFilter ? `filter="url(#${filterId})"` : '';
+  const strokeStyle = (o && Number(o.width) > 0) ? `stroke:${o.color||'#000000'};stroke-width:${Number(o.width)}px;paint-order:stroke;stroke-linejoin:round;` : '';
   return Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
   <svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}">
     <defs>${shadowFilter}</defs>
     <style>
-      .t { font: ${fontSize}px ${ff}; fill: ${color}; fill-opacity: ${opacity}; }
+      .t { font: ${fontSize}px ${ff}; fill: ${color}; fill-opacity: ${opacity}; ${strokeStyle} }
     </style>
     <text x="0" y="${Math.round((fontSize || 36) * 1.1)}" class="t" ${filterAttr}>${esc(text)}</text>
   </svg>`);
@@ -44,8 +46,13 @@ function normalizeBuffer(bytes) {
 async function fitOverlayInside(overlayBuf, boxW, boxH) {
   const ow = clamp(Math.floor(boxW), 1, 100000);
   const oh = clamp(Math.floor(boxH), 1, 100000);
-  // PNG로 명시적으로 래스터라이즈하여 치수 확정
-  const out = await sharp(overlayBuf)
+  // PNG로 래스터라이즈 후 투명 여백 트리밍 → 실제 텍스트/로고 경계만 남기기
+  const trimmed = await sharp(overlayBuf)
+    .png()
+    .trim()
+    .toBuffer();
+  // 안전 박스 안으로 리사이즈
+  const out = await sharp(trimmed)
     .resize({ width: ow, height: oh, fit: 'inside', withoutEnlargement: true })
     .png()
     .toBuffer();
@@ -96,7 +103,7 @@ function computeLeftTop(baseW, baseH, overlayW, overlayH, position, margin) {
 
 // 공통: 실제 합성 (파일 저장용)
 async function watermarkOne(inputPath, outputPath, opts) {
-  const { text, fontSize, opacity, position, margin, maxWidth, logoBytes, textColor, fontFamily, shadowColor, shadowOffsetX, shadowOffsetY, shadowBlur } = opts;
+  const { text, fontSize, opacity, position, margin, maxWidth, logoBytes, textColor, fontFamily, shadowColor, shadowOffsetX, shadowOffsetY, shadowBlur, outlineColor, outlineWidth } = opts;
 
   // 1) 베이스 생성 및 (옵션) 리사이즈
   let probe = sharp(inputPath, { failOn: 'none' });
@@ -131,7 +138,8 @@ async function watermarkOne(inputPath, outputPath, opts) {
       boxW,
       textColor,
       fontFamily,
-      { color: shadowColor, offsetX: shadowOffsetX, offsetY: shadowOffsetY, blur: shadowBlur }
+      { color: shadowColor, offsetX: shadowOffsetX, offsetY: shadowOffsetY, blur: shadowBlur },
+      { color: outlineColor, width: outlineWidth }
     );
     // SVG도 합성 전 안전 박스 크기(boxW x boxH) 안으로 축소
     const safeSvg = await fitOverlayInside(rawSvg, boxW, boxH);
@@ -205,7 +213,7 @@ async function generatePreviewBuffer(inputPath, options, previewWidth = 800) {
   let base = sharp(baseBuf, { failOn: 'none' });
   let meta = await base.metadata();
 
-  const { text, fontSize, opacity, position, margin, logoBytes, textColor, fontFamily, shadowColor, shadowOffsetX, shadowOffsetY, shadowBlur } = options;
+  const { text, fontSize, opacity, position, margin, logoBytes, textColor, fontFamily, shadowColor, shadowOffsetX, shadowOffsetY, shadowBlur, outlineColor, outlineWidth } = options;
 
   const m = clamp(Number(margin) || 0, 0, 1000);
   const baseW = meta.width || 0;
@@ -223,7 +231,8 @@ async function generatePreviewBuffer(inputPath, options, previewWidth = 800) {
       boxW,
       textColor,
       fontFamily,
-      { color: shadowColor, offsetX: shadowOffsetX, offsetY: shadowOffsetY, blur: shadowBlur }
+      { color: shadowColor, offsetX: shadowOffsetX, offsetY: shadowOffsetY, blur: shadowBlur },
+      { color: outlineColor, width: outlineWidth }
     );
     const safeSvg = await fitOverlayInside(rawSvg, boxW, boxH);
 
