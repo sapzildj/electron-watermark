@@ -13,9 +13,7 @@ const previewGrid = document.getElementById('previewGrid'); // 있을 경우 동
 const wmText = document.getElementById('wmText');
 const fontSize = document.getElementById('fontSize');
 const fontSizeMode = document.getElementById('fontSizeMode');
-const fontSizePct = document.getElementById('fontSizePct');
 const rowFontSizePx = document.getElementById('rowFontSizePx');
-const rowFontSizePct = document.getElementById('rowFontSizePct');
 const textColor = document.getElementById('textColor');
 const fontFamily = document.getElementById('fontFamily');
 const fontFamilySelect = document.getElementById('fontFamilySelect');
@@ -32,10 +30,7 @@ const outlineColor = document.getElementById('outlineColor');
 const outlineWidth = document.getElementById('outlineWidth');
 const logo = document.getElementById('logo');
 
-// Custom position elements
-const customPositionRow = document.getElementById('customPositionRow');
-const customX = document.getElementById('customX');
-const customY = document.getElementById('customY');
+
 
 // ===== Persistence Keys =====
 const STORAGE_KEY = 'wmOptions.v1';
@@ -49,7 +44,6 @@ function getCurrentOptionsSnapshot() {
     text: (wmText.value || '').trim(),
     fontSize: Number(fontSize.value) || 36,
     fontSizeMode: (fontSizeMode?.value || 'percent'),
-    fontSizePct: (Number.isFinite(Number(fontSizePct?.value)) ? Number(fontSizePct?.value) : 5),
     textColor: (textColor?.value || '#ffffff'),
     fontFamily: (fontFamily?.value || "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"),
     opacity: Math.max(0, Math.min(1, Number(opacity.value) || 0.35)),
@@ -62,8 +56,6 @@ function getCurrentOptionsSnapshot() {
     shadowBlur: (Number.isFinite(Number(shadowBlur?.value)) ? Number(shadowBlur?.value) : 0),
     outlineColor: (outlineColor?.value || '#000000'),
     outlineWidth: (Number.isFinite(Number(outlineWidth?.value)) ? Number(outlineWidth?.value) : 0),
-    customX: (Number.isFinite(Number(customX?.value)) ? Number(customX?.value) : 0),
-    customY: (Number.isFinite(Number(customY?.value)) ? Number(customY?.value) : 0),
     // logo 파일은 보안상 경로/값 저장 X (브라우저가 file input 복원을 금지)
   };
 }
@@ -73,15 +65,11 @@ function applyOptionsToUI(opts) {
   if (typeof opts.text === 'string') wmText.value = opts.text;
   if (Number.isFinite(opts.fontSize)) fontSize.value = String(opts.fontSize);
   if (typeof opts.fontSizeMode === 'string' && fontSizeMode) fontSizeMode.value = opts.fontSizeMode;
-  if (Number.isFinite(opts.fontSizePct) && fontSizePct) fontSizePct.value = String(opts.fontSizePct);
   if (typeof opts.textColor === 'string' && textColor) textColor.value = opts.textColor;
   if (typeof opts.fontFamily === 'string' && fontFamily) fontFamily.value = opts.fontFamily;
   if (Number.isFinite(opts.opacity)) opacity.value = String(opts.opacity);
 // Helper to toggle font size mode visibility
 function updateFontSizeModeVisibility() {
-  const mode = fontSizeMode?.value || 'percent';
-  if (rowFontSizePx) rowFontSizePx.style.display = (mode === 'absolute') ? 'flex' : 'none';
-  if (rowFontSizePct) rowFontSizePct.style.display = (mode === 'percent') ? 'flex' : 'none';
 }
   if (typeof opts.position === 'string') position.value = opts.position;
   if (Number.isFinite(opts.margin)) margin.value = String(opts.margin);
@@ -92,8 +80,6 @@ function updateFontSizeModeVisibility() {
   if (Number.isFinite(opts.shadowBlur) && shadowBlur) shadowBlur.value = String(opts.shadowBlur);
   if (typeof opts.outlineColor === 'string' && outlineColor) outlineColor.value = opts.outlineColor;
   if (Number.isFinite(opts.outlineWidth) && outlineWidth) outlineWidth.value = String(opts.outlineWidth);
-  if (Number.isFinite(opts.customX) && customX) customX.value = String(opts.customX);
-  if (Number.isFinite(opts.customY) && customY) customY.value = String(opts.customY);
 }
 
 function saveOptions() {
@@ -111,6 +97,7 @@ function loadOptions() {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     applyOptionsToUI(parsed);
+    updateFontSizeModeVisibility(); // Manually update UI after loading options
     return parsed;
   } catch (e) {
     console.error('loadOptions error:', e);
@@ -216,9 +203,7 @@ async function readOptionsForPreview(filePath = null) {
   if (filePath && imagePositions.has(filePath)) {
     const imagePosition = imagePositions.get(filePath);
     if (imagePosition.type === 'custom') {
-      snap.position = 'custom';
-      snap.customX = imagePosition.x;
-      snap.customY = imagePosition.y;
+      snap.position = imagePosition;
     } else {
       snap.position = imagePosition.type;
     }
@@ -241,40 +226,8 @@ function renderInteractivePreviews(dataUrls, filePaths, originalImages) {
     // Initialize position for this image if not exists
     if (!imagePositions.has(filePath)) {
       const initialPosition = {
-        type: position.value || 'southeast',
-        x: Number(customX?.value) || 0,
-        y: Number(customY?.value) || 0
+        type: position.value || 'southeast'
       };
-      
-      // Auto나 기본 위치인 경우 비율로 설정
-      if (initialPosition.type !== 'custom') {
-        switch (initialPosition.type) {
-          case 'southeast':
-            initialPosition.ratioX = 0.8;
-            initialPosition.ratioY = 0.9;
-            break;
-          case 'southwest':
-            initialPosition.ratioX = 0.05;
-            initialPosition.ratioY = 0.9;
-            break;
-          case 'northeast':
-            initialPosition.ratioX = 0.8;
-            initialPosition.ratioY = 0.05;
-            break;
-          case 'northwest':
-            initialPosition.ratioX = 0.05;
-            initialPosition.ratioY = 0.05;
-            break;
-          case 'center':
-            initialPosition.ratioX = 0.5;
-            initialPosition.ratioY = 0.5;
-            break;
-          default:
-            initialPosition.ratioX = 0.8;
-            initialPosition.ratioY = 0.9;
-        }
-      }
-      
       imagePositions.set(filePath, initialPosition);
     }
 
@@ -322,8 +275,8 @@ function renderInteractivePreviews(dataUrls, filePaths, originalImages) {
 
     // 이미지 로드 후 워터마크 위치 설정
     img.onload = async () => {
-      await setupWatermarkOverlay(overlay, img, filePath, i);
-      await updateOverlayPosition(overlay, img, filePath);
+      const { overlayWidth, overlayHeight } = await setupWatermarkOverlay(overlay, img, filePath, i);
+      updateOverlayPosition(overlay, img, filePath, overlayWidth, overlayHeight);
     };
   });
 }
@@ -343,7 +296,7 @@ async function calculateActualWatermarkSize(img, filePath) {
         const mode = (opts.fontSizeMode || 'percent');
         let effFont = 36;
         if (mode === 'percent') {
-          const pct = Number(opts.fontSizePct) || 5;
+          const pct = Number(opts.fontSize) || 5;
           effFont = Math.max(12, Math.min(256, Math.round(shortEdge * (pct / 100))));
         } else {
           effFont = Math.max(12, Math.min(256, Math.round(Number(opts.fontSize) || 36)));
@@ -402,6 +355,7 @@ async function setupWatermarkOverlay(overlay, img, filePath, imageIndex) {
   let startX = 0;
   let startY = 0;
   let lastUpdateTime = 0;
+  let currentImgRect; // Variable to store imgRect on mousedown
 
   overlay.addEventListener('mousedown', (e) => {
     isDragging = true;
@@ -409,23 +363,23 @@ async function setupWatermarkOverlay(overlay, img, filePath, imageIndex) {
     const overlayRect = overlay.getBoundingClientRect();
     startX = e.clientX - overlayRect.left;
     startY = e.clientY - overlayRect.top;
+    currentImgRect = img.getBoundingClientRect(); // Calculate imgRect on mousedown
     e.preventDefault();
     e.stopPropagation();
   });
 
-  document.addEventListener('mousemove', (e) => {
+  const onMouseMove = (e) => {
     if (!isDragging) return;
     
-    const imgRect = img.getBoundingClientRect();
-    const x = e.clientX - imgRect.left - startX;
-    const y = e.clientY - imgRect.top - startY;
+    const x = e.clientX - currentImgRect.left - startX;
+    const y = e.clientY - currentImgRect.top - startY;
     
     // 현재 오버레이의 실제 크기 사용 (동적으로 변할 수 있음)
     const currentWidth = overlay.offsetWidth;
     const currentHeight = overlay.offsetHeight;
     
-    const clampedX = Math.max(0, Math.min(x, imgRect.width - currentWidth));
-    const clampedY = Math.max(0, Math.min(y, imgRect.height - currentHeight));
+    const clampedX = Math.max(0, Math.min(x, currentImgRect.width - currentWidth));
+    const clampedY = Math.max(0, Math.min(y, currentImgRect.height - currentHeight));
     
     // 즉시 오버레이 위치 업데이트 (부드러운 드래그)
     overlay.style.left = clampedX + 'px';
@@ -439,14 +393,14 @@ async function setupWatermarkOverlay(overlay, img, filePath, imageIndex) {
       // 실제 이미지 좌표로 변환하여 저장
       const originalImg = new Image();
       originalImg.onload = () => {
-        const scaleX = originalImg.width / imgRect.width;
-        const scaleY = originalImg.height / imgRect.height;
+        const scaleX = originalImg.width / currentImgRect.width;
+        const scaleY = originalImg.height / currentImgRect.height;
         const realX = Math.round(clampedX * scaleX);
         const realY = Math.round(clampedY * scaleY);
         
         // 좌표를 비율로도 저장 (더 안정적인 매칭을 위해)
-        const ratioX = clampedX / imgRect.width;
-        const ratioY = clampedY / imgRect.height;
+        const ratioX = clampedX / currentImgRect.width;
+        const ratioY = clampedY / currentImgRect.height;
         
         const newPosition = {
           type: 'custom',
@@ -467,9 +421,9 @@ async function setupWatermarkOverlay(overlay, img, filePath, imageIndex) {
       };
       originalImg.src = img.src;
     }
-  });
+  };
 
-  document.addEventListener('mouseup', () => {
+  const onMouseUp = () => {
     if (isDragging) {
       isDragging = false;
       overlay.classList.remove('dragging');
@@ -478,10 +432,21 @@ async function setupWatermarkOverlay(overlay, img, filePath, imageIndex) {
       const card = overlay.closest('.preview-card');
       refreshPreviewImage(filePath, card);
     }
+  };
+
+  document.addEventListener('mousemove', onMouseMove);
+  document.addEventListener('mouseup', onMouseUp);
+
+  // Clean up event listeners when the element is removed
+  overlay.addEventListener('removed', () => {
+    document.removeEventListener('mousemove', onMouseMove);
+    document.removeEventListener('mouseup', onMouseUp);
   });
+
+  return { overlayWidth, overlayHeight };
 }
 
-async function updateOverlayPosition(overlay, img, filePath) {
+async function updateOverlayPosition(overlay, img, filePath, overlayWidth, overlayHeight) {
   const posData = imagePositions.get(filePath);
   const imgRect = img.getBoundingClientRect();
   
@@ -490,70 +455,57 @@ async function updateOverlayPosition(overlay, img, filePath) {
     return;
   }
   
-  try {
-    // 비율 기반 위치가 있으면 바로 사용 (더 빠르고 정확)
-    if (posData.ratioX !== undefined && posData.ratioY !== undefined) {
-      const x = posData.ratioX * imgRect.width;
-      const y = posData.ratioY * imgRect.height;
-      
-      // 경계 체크
-      const maxX = Math.max(0, imgRect.width - overlay.offsetWidth);
-      const maxY = Math.max(0, imgRect.height - overlay.offsetHeight);
-      
-      overlay.style.left = Math.min(x, maxX) + 'px';
-      overlay.style.top = Math.min(y, maxY) + 'px';
-      return;
-    }
+  // For custom positions set by dragging, use the ratio-based positioning.
+  if (posData.type === 'custom' && posData.ratioX !== undefined && posData.ratioY !== undefined) {
+    const x = posData.ratioX * imgRect.width;
+    const y = posData.ratioY * imgRect.height;
     
-    // 비율 정보가 없으면 API로 정확한 위치 계산
-    const opts = await readOptionsForPreview(filePath);
-    const watermarkInfo = await window.api.getWatermarkPosition({ filePath, options: opts });
+    const maxX = Math.max(0, imgRect.width - (overlayWidth || overlay.offsetWidth));
+    const maxY = Math.max(0, imgRect.height - (overlayHeight || overlay.offsetHeight));
     
-    if (watermarkInfo) {
-      const scaleX = imgRect.width / watermarkInfo.imageWidth;
-      const scaleY = imgRect.height / watermarkInfo.imageHeight;
-      
-      const x = watermarkInfo.left * scaleX;
-      const y = watermarkInfo.top * scaleY;
-      
-      // 위치만 업데이트, 크기는 초기 설정 유지
-      overlay.style.left = x + 'px';
-      overlay.style.top = y + 'px';
-    }
-    
-  } catch (e) {
-    console.error('Failed to get watermark position:', e);
-    // 최종 폴백: 간단한 위치 계산
-    const margin = Number(document.getElementById('margin')?.value || 24);
-    const overlayWidth = overlay.offsetWidth || 200;
-    const overlayHeight = overlay.offsetHeight || 30;
-    
-    let x = 0, y = 0;
-    switch (posData.type) {
-      case 'northwest':
-        x = margin;
-        y = margin;
-        break;
-      case 'northeast':
-        x = imgRect.width - overlayWidth - margin;
-        y = margin;
-        break;
-      case 'southwest':
-        x = margin;
-        y = imgRect.height - overlayHeight - margin;
-        break;
-      case 'center':
-        x = (imgRect.width - overlayWidth) / 2;
-        y = (imgRect.height - overlayHeight) / 2;
-        break;
-      default: // southeast
-        x = imgRect.width - overlayWidth - margin;
-        y = imgRect.height - overlayHeight - margin;
-    }
-    
-    overlay.style.left = Math.max(0, x) + 'px';
-    overlay.style.top = Math.max(0, y) + 'px';
+    overlay.style.left = Math.min(x, maxX) + 'px';
+    overlay.style.top = Math.min(y, maxY) + 'px';
+    return;
   }
+
+  // For preset positions, calculate the position using the switch statement.
+  const margin = Number(document.getElementById('margin')?.value || 24);
+  const w = overlayWidth || overlay.offsetWidth || 200;
+  const h = overlayHeight || overlay.offsetHeight || 30;
+  
+  let x = 0, y = 0;
+  switch (posData.type) {
+    case 'northwest':
+      x = margin;
+      y = margin;
+      break;
+    case 'northeast':
+      x = imgRect.width - w - margin;
+      y = margin;
+      break;
+    case 'north':
+      x = Math.floor((imgRect.width - w) / 2);
+      y = margin;
+      break;
+    case 'southwest':
+      x = margin;
+      y = imgRect.height - h - margin;
+      break;
+    case 'south':
+      x = Math.floor((imgRect.width - w) / 2);
+      y = imgRect.height - h - margin;
+      break;
+    case 'center':
+      x = Math.floor((imgRect.width - w) / 2);
+      y = Math.floor((imgRect.height - h) / 2);
+      break;
+    default: // southeast
+      x = imgRect.width - w - margin;
+      y = imgRect.height - h - margin;
+  }
+  
+  overlay.style.left = Math.max(0, x) + 'px';
+  overlay.style.top = Math.max(0, y) + 'px';
 }
 
 // Debounce 맵 (파일별로 독립적인 debounce)
@@ -652,24 +604,13 @@ if (btnPreview) {
   }
 
   // 3) 입력 변경 시 자동 저장 (디바운스 없이 단순 처리)
-  [wmText, fontSize, textColor, fontFamily, opacity, position, margin, maxWidth, shadowColor, shadowOffsetX, shadowOffsetY, shadowBlur, outlineColor, outlineWidth, customX, customY].forEach(el => {
+  [wmText, fontSize, textColor, fontFamily, opacity, position, margin, maxWidth, shadowColor, shadowOffsetX, shadowOffsetY, shadowBlur, outlineColor, outlineWidth].forEach(el => {
     if (!el) return;
     const ev = el.tagName === 'SELECT' ? 'change' : 'input';
     el.addEventListener(ev, saveOptions);
   });
 
-  // Position select 변경 시 custom position row 표시/숨김
-  if (position) {
-    position.addEventListener('change', () => {
-      if (customPositionRow) {
-        customPositionRow.style.display = position.value === 'custom' ? 'flex' : 'none';
-      }
-    });
-    // 초기 상태 설정
-    if (customPositionRow) {
-      customPositionRow.style.display = position.value === 'custom' ? 'flex' : 'none';
-    }
-  }
+  
 
   // 4) 시스템 폰트 목록 로드하여 datalist/셀렉트 채우기 + 미리보기
   const dl = document.getElementById('fontList');

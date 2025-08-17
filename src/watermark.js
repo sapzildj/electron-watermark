@@ -13,10 +13,10 @@ function clamp(num, min, max) {
 // 이미지 크기에 따라 일관된 텍스트 크기 계산
 // mode === 'percent'  -> shortEdge * (fontSizePct / 100)
 // mode === 'absolute' -> fontSize (px)
-function effectiveFontSize(baseW, baseH, { fontSize, fontSizeMode, fontSizePct }) {
+function effectiveFontSize(baseW, baseH, { fontSize, fontSizeMode }) {
   const shortEdge = Math.max(1, Math.min(baseW || 0, baseH || 0));
   if ((fontSizeMode || 'percent') === 'percent') {
-    const pct = Number(fontSizePct);
+    const pct = Number(fontSize);
     const raw = (isFinite(pct) ? pct : 5) / 100 * shortEdge;
     return clamp(Math.round(raw), 12, 256);
   } else {
@@ -114,7 +114,7 @@ function makeTextSVG(text, fontSize, opacity, maxWidthPx, textColor, fontFamily,
   }
   
   const svgW = clamp(Math.floor(maxWidthPx || 400), 50, 10000);    // 최소 50px
-  const svgH = clamp(Math.floor(scaledFontSize * 1.6), 30, 2000); // 스케일된 폰트 크기 기준
+  const svgH = clamp(Math.floor(scaledFontSize * 1.4), 30, 2000); // 스케일된 폰트 크기 기준
   const color = (textColor || '#ffffff');
   const ff = (fontFamily || "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif");
   const s = shadow || { color: '#000000', offsetX: 2, offsetY: 2, blur: 0 };
@@ -143,7 +143,7 @@ function makeTextSVG(text, fontSize, opacity, maxWidthPx, textColor, fontFamily,
     <style>
       .t { font: ${scaledFontSize}px ${ff}; fill: ${color}; ${strokeStyle} }
     </style>
-    <text x="0" y="${Math.round(scaledFontSize * 1.1)}" class="t" ${filterAttr} fill-opacity="${opacity}">${esc(text)}</text>
+    <text x="0" y="${Math.round(scaledFontSize * 1.0)}" class="t" ${filterAttr} fill-opacity="${opacity}">${esc(text)}</text>
   </svg>`);
 }
 
@@ -194,9 +194,6 @@ function computeLeftTop(baseW, baseH, overlayW, overlayH, position, margin, cust
       left = Number(position.x) || 0;
       top = Number(position.y) || 0;
     }
-  } else if (position === 'custom' && (customX !== undefined || customY !== undefined)) {
-    left = Number(customX) || 0;
-    top = Number(customY) || 0;
   } else {
     switch (position) {
       case 'southeast':
@@ -211,9 +208,17 @@ function computeLeftTop(baseW, baseH, overlayW, overlayH, position, margin, cust
         left = baseW - overlayW - m;
         top = m;
         break;
+      case 'north':
+        left = Math.floor((baseW - overlayW) / 2);
+        top = m;
+        break;
       case 'northwest':
         left = m;
         top = m;
+        break;
+      case 'south':
+        left = Math.floor((baseW - overlayW) / 2);
+        top = baseH - overlayH - m;
         break;
       case 'center':
       default:
@@ -231,7 +236,7 @@ function computeLeftTop(baseW, baseH, overlayW, overlayH, position, margin, cust
 
 // 공통: 실제 합성 (파일 저장용)
 async function watermarkOne(inputPath, outputPath, opts) {
-  const { text, fontSize, opacity, position, margin, maxWidth, logoBytes, textColor, fontFamily, shadowColor, shadowOffsetX, shadowOffsetY, shadowBlur, outlineColor, outlineWidth, customX, customY } = opts;
+  const { text, fontSize, opacity, position, margin, maxWidth, logoBytes, textColor, fontFamily, shadowColor, shadowOffsetX, shadowOffsetY, shadowBlur, outlineColor, outlineWidth } = opts;
 
   // 1) 베이스 생성 및 (옵션) 리사이즈
   let probe = sharp(inputPath, { failOn: 'none' });
@@ -255,7 +260,7 @@ async function watermarkOne(inputPath, outputPath, opts) {
   const boxW = clamp(baseW - m * 2, 1, baseW);   // 최소 1 보장
   const boxH = clamp(baseH - m * 2, 1, baseH);
 
-  const effFont = effectiveFontSize(baseW, baseH, { fontSize, fontSizeMode: opts.fontSizeMode, fontSizePct: opts.fontSizePct });
+  const effFont = effectiveFontSize(baseW, baseH, { fontSize, fontSizeMode: opts.fontSizeMode });
   const effOpacity = clamp(Number(opacity) || 0.35, 0, 1);
 
   const composites = [];
@@ -282,7 +287,7 @@ async function watermarkOne(inputPath, outputPath, opts) {
     if (pos === 'auto') {
       pos = await pickAutoPosition(img, baseW, baseH, svgMeta.width || 0, svgMeta.height || 0, m, textColor);
     }
-    const { left: svgLeft, top: svgTop } = computeLeftTop(baseW, baseH, svgMeta.width || 0, svgMeta.height || 0, pos, m, customX, customY);
+    const { left: svgLeft, top: svgTop } = computeLeftTop(baseW, baseH, svgMeta.width || 0, svgMeta.height || 0, pos, m);
     
     console.log('Actual watermark applied:', {
       imageSize: `${baseW}x${baseH}`,
@@ -303,7 +308,7 @@ async function watermarkOne(inputPath, outputPath, opts) {
   if (logoBuf) {
     const safeLogo = await fitOverlayInside(logoBuf, boxW, boxH);
     const lmeta = await sharp(safeLogo).metadata();
-    const { left: logoLeft, top: logoTop } = computeLeftTop(baseW, baseH, lmeta.width || 0, lmeta.height || 0, position, m, customX, customY);
+    const { left: logoLeft, top: logoTop } = computeLeftTop(baseW, baseH, lmeta.width || 0, lmeta.height || 0, position, m);
     composites.push({
       input: safeLogo,
       left: logoLeft,
@@ -392,7 +397,7 @@ async function generatePreviewBuffer(inputPath, options, previewWidth = 800) {
   let base = sharp(baseBuf, { failOn: 'none' });
   let meta = await base.metadata();
 
-  const { text, fontSize, opacity, position, margin, logoBytes, textColor, fontFamily, shadowColor, shadowOffsetX, shadowOffsetY, shadowBlur, outlineColor, outlineWidth, customX, customY } = options;
+  const { text, fontSize, opacity, position, margin, logoBytes, textColor, fontFamily, shadowColor, shadowOffsetX, shadowOffsetY, shadowBlur, outlineColor, outlineWidth } = options;
 
   const m = clamp(Number(margin) || 0, 0, 1000);
   const baseW = meta.width || 0;
@@ -400,7 +405,7 @@ async function generatePreviewBuffer(inputPath, options, previewWidth = 800) {
   const boxW = clamp(baseW - m * 2, 1, baseW);
   const boxH = clamp(baseH - m * 2, 1, baseH);
 
-  const effFont = effectiveFontSize(baseW, baseH, { fontSize, fontSizeMode: options.fontSizeMode, fontSizePct: options.fontSizePct });
+  const effFont = effectiveFontSize(baseW, baseH, { fontSize, fontSizeMode: options.fontSizeMode });
   const effOpacity = clamp(Number(opacity) || 0.35, 0, 1);
 
   const composites = [];
@@ -425,7 +430,7 @@ async function generatePreviewBuffer(inputPath, options, previewWidth = 800) {
     if (pos === 'auto') {
       pos = await pickAutoPosition(base, baseW, baseH, svgMeta.width || 0, svgMeta.height || 0, m, textColor);
     }
-    const { left: svgLeft, top: svgTop } = computeLeftTop(baseW, baseH, svgMeta.width || 0, svgMeta.height || 0, pos, m, customX, customY);
+    const { left: svgLeft, top: svgTop } = computeLeftTop(baseW, baseH, svgMeta.width || 0, svgMeta.height || 0, pos, m);
     composites.push({ input: safeSvg, left: svgLeft, top: svgTop });
   }
 
@@ -433,7 +438,7 @@ async function generatePreviewBuffer(inputPath, options, previewWidth = 800) {
   if (logoBuf) {
     const safeLogo = await fitOverlayInside(logoBuf, boxW, boxH);
     const lmeta = await sharp(safeLogo).metadata();
-    const { left: logoLeft, top: logoTop } = computeLeftTop(baseW, baseH, lmeta.width || 0, lmeta.height || 0, position, m, customX, customY);
+    const { left: logoLeft, top: logoTop } = computeLeftTop(baseW, baseH, lmeta.width || 0, lmeta.height || 0, position, m);
     composites.push({ input: safeLogo, left: logoLeft, top: logoTop, blend: 'over', opacity: effOpacity });
   }
 
@@ -469,7 +474,7 @@ async function getWatermarkPosition(inputPath, options, previewWidth = 800) {
   
   let meta = await img.metadata();
 
-  const { text, fontSize, opacity, position, margin, logoBytes, textColor, fontFamily, shadowColor, shadowOffsetX, shadowOffsetY, shadowBlur, outlineColor, outlineWidth, customX, customY } = options;
+  const { text, fontSize, opacity, position, margin, logoBytes, textColor, fontFamily, shadowColor, shadowOffsetX, shadowOffsetY, shadowBlur, outlineColor, outlineWidth } = options;
 
   const m = clamp(Number(margin) || 0, 0, 1000);
   const baseW = meta.width || 0;
@@ -477,7 +482,7 @@ async function getWatermarkPosition(inputPath, options, previewWidth = 800) {
   const boxW = clamp(baseW - m * 2, 1, baseW);
   const boxH = clamp(baseH - m * 2, 1, baseH);
 
-  const effFont = effectiveFontSize(baseW, baseH, { fontSize, fontSizeMode: options.fontSizeMode, fontSizePct: options.fontSizePct });
+  const effFont = effectiveFontSize(baseW, baseH, { fontSize, fontSizeMode: options.fontSizeMode });
   const effOpacity = clamp(Number(opacity) || 0.35, 0, 1);
 
   let watermarkInfo = null;
@@ -502,7 +507,7 @@ async function getWatermarkPosition(inputPath, options, previewWidth = 800) {
     if (pos === 'auto') {
       pos = await pickAutoPosition(img, baseW, baseH, svgMeta.width || 0, svgMeta.height || 0, m, textColor);
     }
-    const { left: svgLeft, top: svgTop } = computeLeftTop(baseW, baseH, svgMeta.width || 0, svgMeta.height || 0, pos, m, customX, customY);
+    const { left: svgLeft, top: svgTop } = computeLeftTop(baseW, baseH, svgMeta.width || 0, svgMeta.height || 0, pos, m);
     
     watermarkInfo = {
       left: svgLeft,

@@ -25,7 +25,7 @@
     .preview-card { position: relative; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; background: #fff; }
     .preview-card img { display: block; width: 100%; cursor: pointer; }
     .preview-card .filename { font-size: 12px; padding: 8px; border-bottom: 1px solid #eee; color: #6b7280; }
-    .watermark-overlay { position: absolute; border: 2px dashed #3b82f6; background: rgba(59, 130, 246, 0.1); cursor: move; min-width: 20px; min-height: 20px; pointer-events: auto; will-change: transform; transform: translateZ(0); }
+    .watermark-overlay { position: absolute; border: 2px dashed #3b82f6; background: rgba(59, 130, 246, 0.1); cursor: move; min-width: 20px; min-height: 20px; pointer-events: auto; will-change: transform; transform: translateZ(0); box-sizing: border-box; display: flex; align-items: center; justify-content: center; }
     .watermark-overlay:hover { background: rgba(59, 130, 246, 0.2); border-color: #1d4ed8; }
     .watermark-overlay.dragging { background: rgba(59, 130, 246, 0.3); z-index: 1000; transform: translateZ(0); }
     .preview-controls { padding: 8px; background: #f8f9fa; border-top: 1px solid #eee; font-size: 11px; color: #6b7280; }
@@ -52,8 +52,7 @@
             <option value="absolute">Absolute (px)</option>
           </select>
         </div>
-        <div class="row" id="rowFontSizePx"><label>Font Size (px)</label><input id="fontSize" type="number" value="36" min="8" max="256" /></div>
-        <div class="row" id="rowFontSizePct" style="display:none;"><label>Font Size (%)</label><input id="fontSizePct" type="number" value="5" min="1" max="50" step="0.1" /></div>
+        <div class="row" id="rowFontSizePx"><label>Font Size</label><input id="fontSize" type="number" value="36" min="8" max="256" /></div>
         <div class="row"><label>Text Color</label><input id="textColor" type="color" value="#ffffff" /></div>
         <div class="row"><label>Font</label>
           <input id="fontFamily" type="text" list="fontList" placeholder="-apple-system, Segoe UI, Roboto, Arial, sans-serif" />
@@ -73,8 +72,9 @@
             <option value="southwest">Bottom-Left</option>
             <option value="northeast">Top-Right</option>
             <option value="northwest">Top-Left</option>
+            <option value="north">Top-Center</option>
+            <option value="south">Bottom-Center</option>
             <option value="center">Center</option>
-            <option value="custom">Custom (x,y)</option>
           </select>
         </div>
         <div class="row" id="customPositionRow" style="display:none;">
