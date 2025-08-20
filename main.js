@@ -2,7 +2,7 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { processFolderImages, generatePreviewBuffer } = require('./src/watermark');
+const { processFolderImages, generatePreviewBuffer, processFolderVideos, extractVideoFrame } = require('./src/watermark');
 const fontList = require('font-list');
 
 let mainWindow;
@@ -60,18 +60,51 @@ ipcMain.handle('process-images', async (_evt, payload) => {
   return summary; // { total, succeeded, failed }
 });
 
+// IPC: process videos
+ipcMain.handle('process-videos', async (_evt, payload) => {
+  const { folder, options } = payload;
+  if (!folder || !fs.existsSync(folder)) {
+    throw new Error('Folder not found.');
+  }
+
+  const onProgress = (data) => {
+    mainWindow?.webContents.send('progress', data);
+  };
+
+  const outDir = path.join(folder, 'output');
+  if (!fs.existsSync(outDir)) fs.mkdirSync(outDir);
+
+  const summary = await processFolderVideos(folder, outDir, options, onProgress);
+  return summary; // { total, succeeded, failed }
+});
+
 
 ipcMain.handle('list-images', async (_evt, folder) => {
   const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp']);
-  const files = fs.readdirSync(folder)
-    .filter(f => IMAGE_EXT.has(path.extname(f).toLowerCase()))
-    .map(f => path.join(folder, f));
-  return files;
+  const VIDEO_EXT = new Set(['.mp4', '.mov', '.m4v', '.mkv', '.webm', '.avi']);
+  
+  const files = fs.readdirSync(folder);
+  const images = files.filter(f => IMAGE_EXT.has(path.extname(f).toLowerCase())).map(f => path.join(folder, f));
+  const videos = files.filter(f => VIDEO_EXT.has(path.extname(f).toLowerCase())).map(f => path.join(folder, f));
+  
+  return { images, videos };
 });
 
 ipcMain.handle('preview-image', async (_evt, payload) => {
   const { filePath, options } = payload;
-  const buf = await generatePreviewBuffer(filePath, options, 800); // 프리뷰 가로 800px
+  const ext = path.extname(filePath).toLowerCase();
+  const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp']);
+  const VIDEO_EXT = new Set(['.mp4', '.mov', '.m4v', '.mkv', '.webm', '.avi']);
+  
+  let buf;
+  if (IMAGE_EXT.has(ext)) {
+    buf = await generatePreviewBuffer(filePath, options, 800);
+  } else if (VIDEO_EXT.has(ext)) {
+    buf = await extractVideoFrame(filePath, options, 800);
+  } else {
+    throw new Error('Unsupported file type');
+  }
+  
   const base64 = buf.toString('base64');
   return `data:image/png;base64,${base64}`;
 });

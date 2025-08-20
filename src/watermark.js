@@ -2,8 +2,43 @@
 const fs = require('fs');
 const path = require('path');
 const sharp = require('sharp');
+const os = require('os');
+const ffmpeg = require('fluent-ffmpeg');
+let ffmpegPath = null;
+let ffprobePath = null;
+try {
+  ffmpegPath = require('ffmpeg-static');
+  console.log('FFmpeg path found:', ffmpegPath);
+} catch (e) {
+  console.log('FFmpeg static not found:', e.message);
+}
+try {
+  const ffprobeStatic = require('ffprobe-static');
+  ffprobePath = ffprobeStatic.path;
+  console.log('FFprobe path found:', ffprobePath);
+} catch (e) {
+  console.log('FFprobe static not found:', e.message);
+}
+
+if (ffmpegPath) {
+  try { 
+    ffmpeg.setFfmpegPath(ffmpegPath); 
+    console.log('FFmpeg path set successfully');
+  } catch (e) {
+    console.log('Failed to set FFmpeg path:', e.message);
+  }
+}
+if (ffprobePath) {
+  try { 
+    ffmpeg.setFfprobePath(ffprobePath); 
+    console.log('FFprobe path set successfully');
+  } catch (e) {
+    console.log('Failed to set FFprobe path:', e.message);
+  }
+}
 
 const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp']); // extend if needed
+const VIDEO_EXT = new Set(['.mp4', '.mov', '.m4v', '.mkv', '.webm', '.avi']);
 
 // 안전 여백/치수 클램프
 function clamp(num, min, max) {
@@ -283,10 +318,8 @@ async function watermarkOne(inputPath, outputPath, opts) {
     const safeSvg = await fitOverlayInside(rawSvg, boxW, boxH);
 
     const svgMeta = await sharp(safeSvg).metadata();
-    let pos = position;
-    if (pos === 'auto') {
-      pos = await pickAutoPosition(img, baseW, baseH, svgMeta.width || 0, svgMeta.height || 0, m, textColor);
-    }
+    let pos = position || 'southeast';
+    if (pos === 'auto') pos = 'southeast';
     const { left: svgLeft, top: svgTop } = computeLeftTop(baseW, baseH, svgMeta.width || 0, svgMeta.height || 0, pos, m);
     
     console.log('Actual watermark applied:', {
@@ -308,7 +341,7 @@ async function watermarkOne(inputPath, outputPath, opts) {
   if (logoBuf) {
     const safeLogo = await fitOverlayInside(logoBuf, boxW, boxH);
     const lmeta = await sharp(safeLogo).metadata();
-    const { left: logoLeft, top: logoTop } = computeLeftTop(baseW, baseH, lmeta.width || 0, lmeta.height || 0, position, m);
+    const { left: logoLeft, top: logoTop } = computeLeftTop(baseW, baseH, lmeta.width || 0, lmeta.height || 0, (position === 'auto' ? 'southeast' : (position || 'southeast')), m);
     composites.push({
       input: safeLogo,
       left: logoLeft,
@@ -426,10 +459,8 @@ async function generatePreviewBuffer(inputPath, options, previewWidth = 800) {
     const safeSvg = await fitOverlayInside(rawSvg, boxW, boxH);
 
     const svgMeta = await sharp(safeSvg).metadata();
-    let pos = position;
-    if (pos === 'auto') {
-      pos = await pickAutoPosition(base, baseW, baseH, svgMeta.width || 0, svgMeta.height || 0, m, textColor);
-    }
+    let pos = position || 'southeast';
+    if (pos === 'auto') pos = 'southeast';
     const { left: svgLeft, top: svgTop } = computeLeftTop(baseW, baseH, svgMeta.width || 0, svgMeta.height || 0, pos, m);
     composites.push({ input: safeSvg, left: svgLeft, top: svgTop });
   }
@@ -438,7 +469,8 @@ async function generatePreviewBuffer(inputPath, options, previewWidth = 800) {
   if (logoBuf) {
     const safeLogo = await fitOverlayInside(logoBuf, boxW, boxH);
     const lmeta = await sharp(safeLogo).metadata();
-    const { left: logoLeft, top: logoTop } = computeLeftTop(baseW, baseH, lmeta.width || 0, lmeta.height || 0, position, m);
+    const pos2 = (position === 'auto' ? 'southeast' : (position || 'southeast'));
+    const { left: logoLeft, top: logoTop } = computeLeftTop(baseW, baseH, lmeta.width || 0, lmeta.height || 0, pos2, m);
     composites.push({ input: safeLogo, left: logoLeft, top: logoTop, blend: 'over', opacity: effOpacity });
   }
 
@@ -503,10 +535,8 @@ async function getWatermarkPosition(inputPath, options, previewWidth = 800) {
     const safeSvg = await fitOverlayInside(rawSvg, boxW, boxH);
 
     const svgMeta = await sharp(safeSvg).metadata();
-    let pos = position;
-    if (pos === 'auto') {
-      pos = await pickAutoPosition(img, baseW, baseH, svgMeta.width || 0, svgMeta.height || 0, m, textColor);
-    }
+    let pos = position || 'southeast';
+    if (pos === 'auto') pos = 'southeast';
     const { left: svgLeft, top: svgTop } = computeLeftTop(baseW, baseH, svgMeta.width || 0, svgMeta.height || 0, pos, m);
     
     watermarkInfo = {
@@ -531,3 +561,270 @@ async function getWatermarkPosition(inputPath, options, previewWidth = 800) {
 }
 
 module.exports = { processFolderImages, generatePreviewBuffer, getWatermarkPosition };
+
+// ====== Video helpers & processing ======
+
+async function getVideoDimensions(inputPath) {
+  return new Promise((resolve, reject) => {
+    try {
+      ffmpeg.ffprobe(inputPath, (err, data) => {
+        if (err) return reject(err);
+        const stream = (data.streams || []).find(s => s.codec_type === 'video');
+        if (!stream) return reject(new Error('No video stream'));
+        
+        let width = Number(stream.width) || 0;
+        let height = Number(stream.height) || 0;
+        
+        // 회전 정보 확인 (iPhone 세로 영상 등)
+        const rotation = stream.side_data_list?.find(sd => sd.side_data_type === 'Display Matrix');
+        const displayMatrix = stream.tags?.rotate || (rotation?.rotation);
+        
+        // 90도 또는 -90도 회전이면 width와 height 바꿈
+        if (displayMatrix === '90' || displayMatrix === '-90' || displayMatrix === 90 || displayMatrix === -90) {
+          [width, height] = [height, width];
+          console.log(`Video rotation detected: ${displayMatrix}°, dimensions swapped to ${width}x${height}`);
+        }
+        
+        resolve({ width, height });
+      });
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+function makeTempFilePath(baseName) {
+  const safe = baseName.replace(/[^a-zA-Z0-9_.-]/g, '_');
+  return path.join(os.tmpdir(), `${Date.now()}_${Math.random().toString(36).slice(2)}_${safe}`);
+}
+
+async function writeBufferToFile(buf, targetPath) {
+  await fs.promises.writeFile(targetPath, buf);
+  return targetPath;
+}
+
+async function processOneVideo(inputPath, outputPath, options) {
+  const { text, fontSize, position, margin, logoBytes, textColor, fontFamily, shadowColor, shadowOffsetX, shadowOffsetY, shadowBlur, outlineColor, outlineWidth } = options;
+
+  if (!ffmpegPath) {
+    throw new Error('ffmpeg binary not found. Please install ffmpeg or add ffmpeg-static dependency.');
+  }
+
+  const meta = await getVideoDimensions(inputPath);
+  const baseW = meta.width || 0;
+  const baseH = meta.height || 0;
+  if (!baseW || !baseH) throw new Error('Failed to read video resolution');
+
+  const m = clamp(Number(margin) || 0, 0, 1000);
+  const boxW = clamp(baseW - m * 2, 1, baseW);
+  const boxH = clamp(baseH - m * 2, 1, baseH);
+  const effFont = effectiveFontSize(baseW, baseH, { fontSize, fontSizeMode: options.fontSizeMode });
+
+  const overlays = [];
+
+  // Text overlay
+  if (text) {
+    const rawSvg = makeTextSVG(
+      text,
+      effFont,
+      1.0, // SVG 자체는 불투명도 1.0으로 생성
+      boxW,
+      textColor,
+      fontFamily,
+      { color: shadowColor, offsetX: shadowOffsetX, offsetY: shadowOffsetY, blur: shadowBlur },
+      { color: outlineColor, width: outlineWidth },
+      baseW,
+      baseW
+    );
+    const safeSvg = await fitOverlayInside(rawSvg, boxW, boxH);
+    const svgMeta = await sharp(safeSvg).metadata();
+    let pos = position === 'auto' ? 'southeast' : (position || 'southeast');
+    const { left, top } = computeLeftTop(baseW, baseH, svgMeta.width || 0, svgMeta.height || 0, pos, m);
+    const tmp = makeTempFilePath('wm_text.png');
+    await writeBufferToFile(safeSvg, tmp);
+    const opacity = clamp(Number(options.opacity) || 0.35, 0, 1);
+    overlays.push({ path: tmp, x: left, y: top, applyAlpha: true, alpha: opacity });
+  }
+
+  // Logo overlay
+  const logoBuf = normalizeBuffer(logoBytes);
+  if (logoBuf) {
+    const safeLogo = await fitOverlayInside(logoBuf, boxW, boxH);
+    const lmeta = await sharp(safeLogo).metadata();
+    let pos = position === 'auto' ? 'southeast' : position;
+    const { left, top } = computeLeftTop(baseW, baseH, lmeta.width || 0, lmeta.height || 0, pos, m);
+    const tmp = makeTempFilePath('wm_logo.png');
+    await writeBufferToFile(safeLogo, tmp);
+    overlays.push({ path: tmp, x: left, y: top, applyAlpha: true, alpha: clamp(Number(options.opacity) || 0.35, 0, 1) });
+  }
+
+  // Build ffmpeg command - 회전 메타데이터는 유지하되 실제 회전은 하지 않음
+  await new Promise((resolve, reject) => {
+    const cmd = ffmpeg();
+    cmd.input(inputPath);
+    overlays.forEach(ov => cmd.input(ov.path));
+
+    const filterParts = [];
+    
+    // 입력 비디오는 원본 그대로 사용 (회전하지 않음)
+    let prev = '[0:v]';
+    
+    // Build overlay chain
+    overlays.forEach((ov, idx) => {
+      const inLabel = `[${idx + 1}:v]`;
+      const outLabel = (idx === overlays.length - 1) ? '[vout]' : `[v${idx + 1}]`;
+      
+      // Apply alpha if needed
+      if (ov.applyAlpha && ov.alpha < 1) {
+        filterParts.push(`${inLabel}format=rgba,colorchannelmixer=aa=${ov.alpha.toFixed(3)}[alpha${idx}]`);
+        filterParts.push(`${prev}[alpha${idx}]overlay=${Math.round(ov.x)}:${Math.round(ov.y)}${outLabel}`);
+      } else {
+        filterParts.push(`${prev}${inLabel}overlay=${Math.round(ov.x)}:${Math.round(ov.y)}${outLabel}`);
+      }
+      prev = outLabel;
+    });
+
+    if (overlays.length > 0) {
+      const filterComplex = filterParts.join(';');
+      cmd.complexFilter(filterComplex);
+      cmd.outputOptions([
+        '-map', '[vout]',
+        '-map', '0:a?',
+        '-c:v', 'libx264',
+        '-crf', '20',
+        '-preset', 'veryfast',
+        '-c:a', 'copy',
+        '-movflags', '+faststart'
+      ]);
+    } else {
+      // No overlays, just copy
+      cmd.outputOptions([
+        '-map', '0:v',
+        '-map', '0:a?',
+        '-c:v', 'copy',
+        '-c:a', 'copy'
+      ]);
+    }
+
+    // Add detailed error logging
+    cmd.on('start', (commandLine) => {
+      console.log('FFmpeg command:', commandLine);
+    });
+    cmd.on('stderr', (stderrLine) => {
+      console.log('FFmpeg stderr:', stderrLine);
+    });
+    cmd.on('end', () => resolve()).on('error', (e) => reject(e)).save(outputPath);
+  }).finally(async () => {
+    // cleanup temp files
+    for (const ov of overlays) {
+      try { await fs.promises.unlink(ov.path); } catch (_) {}
+    }
+  });
+}
+
+async function processFolderVideos(inDir, outDir, options, onProgress) {
+  const files = fs.readdirSync(inDir);
+  const videos = files.filter(f => VIDEO_EXT.has(path.extname(f).toLowerCase()));
+  let current = 0, succeeded = 0, failed = 0;
+
+  // 동영상별 위치 정보 맵 (이미지와 동일한 규칙)
+  const videoPositionsMap = new Map();
+  if (options.imagePositions && Array.isArray(options.imagePositions)) {
+    options.imagePositions.forEach(({ filePath, position }) => {
+      const fileName = path.basename(filePath);
+      videoPositionsMap.set(filePath, position);
+      videoPositionsMap.set(fileName, position);
+    });
+  }
+
+  for (const file of videos) {
+    current += 1;
+    const inputPath = path.join(inDir, file);
+    const outputPath = path.join(outDir, file);
+    try {
+      // 개별 위치 설정 적용
+      let vidOptions = { ...options };
+      const videoPosition = videoPositionsMap.get(inputPath) || videoPositionsMap.get(file) || videoPositionsMap.get(path.basename(inputPath));
+      if (videoPosition) {
+        if (videoPosition.type === 'custom') {
+          vidOptions.position = videoPosition; // ratioX/ratioY 지원
+        } else {
+          vidOptions.position = videoPosition.type;
+        }
+      }
+      await processOneVideo(inputPath, outputPath, vidOptions);
+      succeeded += 1;
+      onProgress?.({ current, total: videos.length, file, ok: true });
+    } catch (e) {
+      failed += 1;
+      onProgress?.({ current, total: videos.length, file, ok: false, message: e.message });
+    }
+  }
+
+  return { total: videos.length, succeeded, failed };
+}
+
+// 동영상 프리뷰용 첫 프레임 추출
+async function extractVideoFrame(inputPath, options, previewWidth = 800) {
+  if (!ffmpegPath) {
+    throw new Error('ffmpeg binary not found');
+  }
+
+  const meta = await getVideoDimensions(inputPath);
+  const baseW = meta.width || 0;
+  const baseH = meta.height || 0;
+  if (!baseW || !baseH) throw new Error('Failed to read video resolution');
+
+  const targetW = baseW > previewWidth ? previewWidth : baseW;
+  const targetH = Math.round((targetW / baseW) * baseH);
+
+  const framePath = makeTempFilePath('frame.jpg');
+  
+  // 프리뷰에서는 회전하지 않고 원본 그대로 사용
+  await new Promise((resolve, reject) => {
+    ffmpeg(inputPath)
+      .seekInput('00:00:01') // 1초 지점에서 프레임 추출
+      .outputOptions([
+        '-vframes', '1',
+        '-vf', `scale=${targetW}:${targetH}`,
+        '-f', 'image2'
+      ])
+      .on('end', () => resolve())
+      .on('error', (e) => reject(e))
+      .save(framePath);
+  });
+
+  // 동영상별 개별 위치 설정 적용
+  let frameOptions = { ...options };
+  if (options.imagePositions && Array.isArray(options.imagePositions)) {
+    const videoPositionsMap = new Map();
+    options.imagePositions.forEach(({ filePath, position }) => {
+      const fileName = path.basename(filePath);
+      videoPositionsMap.set(filePath, position);
+      videoPositionsMap.set(fileName, position);
+    });
+    
+    const videoPosition = videoPositionsMap.get(inputPath) || 
+                         videoPositionsMap.get(path.basename(inputPath));
+    if (videoPosition) {
+      if (videoPosition.type === 'custom') {
+        frameOptions.position = videoPosition;
+      } else {
+        frameOptions.position = videoPosition.type;
+      }
+    }
+  }
+
+  // 프레임에 워터마크 적용 (개별 위치 설정 반영)
+  const frameWithWatermark = await generatePreviewBuffer(framePath, frameOptions, targetW);
+  
+  // 임시 파일 정리
+  try { await fs.promises.unlink(framePath); } catch (_) {}
+  
+  return frameWithWatermark;
+}
+
+module.exports.processFolderVideos = processFolderVideos;
+module.exports.extractVideoFrame = extractVideoFrame;
+module.exports.ffmpegPath = ffmpegPath;
+module.exports.ffprobePath = ffprobePath;

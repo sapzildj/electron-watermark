@@ -167,21 +167,29 @@ async function buildOptionsForIPC() {
   return { ...snap, logoBytes, imagePositions: imagePositionsArray };
 }
 
-// ===== Run =====
+// ===== Run All =====
 btnRun.addEventListener('click', async () => {
   if (!chosenFolder) {
     statusEl.textContent = 'Choose a target folder first.';
     return;
   }
 
-  statusEl.textContent = 'Processing…';
+  statusEl.textContent = 'Processing all files…';
   logEl.textContent = '';
   bar.style.width = '0%';
 
   try {
     const options = await buildOptionsForIPC(); // saveOptions 포함
-    const summary = await window.api.processImages({ folder: chosenFolder, options });
-    statusEl.textContent = `Done. ${summary.succeeded}/${summary.total} succeeded, ${summary.failed} failed.`;
+    
+    // 이미지와 동영상을 순차적으로 처리
+    const imageSummary = await window.api.processImages({ folder: chosenFolder, options });
+    const videoSummary = await window.api.processVideos({ folder: chosenFolder, options });
+    
+    const totalFiles = imageSummary.total + videoSummary.total;
+    const totalSucceeded = imageSummary.succeeded + videoSummary.succeeded;
+    const totalFailed = imageSummary.failed + videoSummary.failed;
+    
+    statusEl.textContent = `완료! 총 ${totalFiles}개 파일 중 ${totalSucceeded}개 성공, ${totalFailed}개 실패 (이미지: ${imageSummary.succeeded}/${imageSummary.total}, 동영상: ${videoSummary.succeeded}/${videoSummary.total})`;
   } catch (e) {
     statusEl.textContent = 'Error: ' + e.message;
   }
@@ -225,9 +233,7 @@ function renderInteractivePreviews(dataUrls, filePaths, originalImages) {
     
     // Initialize position for this image if not exists
     if (!imagePositions.has(filePath)) {
-      const initialPosition = {
-        type: position.value || 'southeast'
-      };
+      const initialPosition = { type: position.value || 'southeast' };
       imagePositions.set(filePath, initialPosition);
     }
 
@@ -237,7 +243,9 @@ function renderInteractivePreviews(dataUrls, filePaths, originalImages) {
 
     const cap = document.createElement('div');
     cap.className = 'filename';
-    cap.textContent = fileName;
+    const ext = filePath.split('.').pop()?.toLowerCase();
+    const isVideo = ['mp4', 'mov', 'm4v', 'mkv', 'webm', 'avi'].includes(ext);
+    cap.innerHTML = `${isVideo ? '🎬 ' : '🖼️ '}${fileName}`;
 
     const imageContainer = document.createElement('div');
     imageContainer.style.position = 'relative';
@@ -559,17 +567,20 @@ if (btnPreview) {
     if (btnRun) btnRun.style.display = 'none';
 
     try {
-      const files = await window.api.listImages(chosenFolder);
+      const fileList = await window.api.listImages(chosenFolder);
+      const allFiles = [...(fileList.images || []), ...(fileList.videos || [])];
 
       const previews = [];
-      for (const f of files) {
+      for (const f of allFiles) {
         const opts = await readOptionsForPreview(f); // 각 파일별 개별 옵션 적용
         const dataUrl = await window.api.previewImage({ filePath: f, options: opts });
         previews.push(dataUrl);
       }
 
-      renderInteractivePreviews(previews, files, files);
-      statusEl.textContent = `🎯 Interactive preview ready (${files.length} images loaded). Drag watermarks to adjust positions.`;
+      renderInteractivePreviews(previews, allFiles, allFiles);
+      const imageCount = (fileList.images || []).length;
+      const videoCount = (fileList.videos || []).length;
+      statusEl.textContent = `🎯 Interactive preview ready (${imageCount} images, ${videoCount} videos). Drag watermarks to adjust positions.`;
       
       // 미리보기 완료 후 Run 버튼 표시
       if (btnRun) {
