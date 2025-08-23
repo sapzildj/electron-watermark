@@ -4,7 +4,7 @@ An Electron-based application for adding watermarks to images and videos.
 
 ## 🎥 Demo
 
-![Demo](docs/demo.mp4)
+https://github.com/user-attachments/assets/d05e1908-c7c7-474e-b6a0-ff6ed307575c
 
 ## 🚀 Features
 
