@@ -217,7 +217,13 @@ async function readOptionsForPreview(filePath = null) {
     }
   }
   
-  return { ...snap, logoBytes, maxWidth: 0 }; // 프리뷰는 내부에서 축소 렌더
+  // 동영상 프리뷰를 위해 전체 imagePositions 배열도 포함
+  const imagePositionsArray = Array.from(imagePositions.entries()).map(([filePath, posData]) => ({
+    filePath,
+    position: posData
+  }));
+  
+  return { ...snap, logoBytes, maxWidth: 0, imagePositions: imagePositionsArray }; // 프리뷰는 내부에서 축소 렌더
 }
 
 // 각 이미지의 개별 위치 설정을 저장
@@ -256,7 +262,8 @@ function renderInteractivePreviews(dataUrls, filePaths, originalImages) {
       const lb = document.getElementById('lightbox');
       const lbImg = document.getElementById('lightboxImg');
       if (!lb || !lbImg) return;
-      lbImg.src = url;
+      // 항상 최신 미리보기 이미지를 사용
+      lbImg.src = img.src;
       lb.style.display = 'flex';
     });
 

@@ -799,13 +799,22 @@ async function extractVideoFrame(inputPath, options, previewWidth = 800) {
   if (options.imagePositions && Array.isArray(options.imagePositions)) {
     const videoPositionsMap = new Map();
     options.imagePositions.forEach(({ filePath, position }) => {
-      const fileName = path.basename(filePath);
+      // 브라우저 호환 파일명 추출
+      const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || filePath;
       videoPositionsMap.set(filePath, position);
       videoPositionsMap.set(fileName, position);
     });
     
+    // 브라우저 호환 파일명 추출
+    const inputFileName = inputPath.split('/').pop() || inputPath.split('\\').pop() || inputPath;
     const videoPosition = videoPositionsMap.get(inputPath) || 
-                         videoPositionsMap.get(path.basename(inputPath));
+                         videoPositionsMap.get(inputFileName);
+    
+    // 디버깅: 동영상 위치 정보 확인
+    if (videoPosition) {
+      console.log(`Found video position for ${inputFileName}:`, videoPosition);
+    }
+    
     if (videoPosition) {
       if (videoPosition.type === 'custom') {
         frameOptions.position = videoPosition;
