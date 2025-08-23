@@ -2,6 +2,10 @@
 
 An Electron-based application for adding watermarks to images and videos.
 
+## 🎥 Demo
+
+![Demo](docs/demo.mp4)
+
 ## 🚀 Features
 
 - **Image Watermarking**: Support for JPG, PNG, WebP and other image formats
