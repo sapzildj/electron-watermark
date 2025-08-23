@@ -837,3 +837,72 @@ module.exports.processFolderVideos = processFolderVideos;
 module.exports.extractVideoFrame = extractVideoFrame;
 module.exports.ffmpegPath = ffmpegPath;
 module.exports.ffprobePath = ffprobePath;
+
+// 동영상 프리뷰용 워터마크 위치/크기 정보 반환
+async function getVideoWatermarkPosition(inputPath, options, previewWidth = 800) {
+  const meta = await getVideoDimensions(inputPath);
+  const baseW = meta.width || 0;
+  const baseH = meta.height || 0;
+  if (!baseW || !baseH) throw new Error('Failed to read video resolution');
+
+  // 프리뷰로 쓰일 프레임 해상도 (extractVideoFrame과 동일 로직)
+  const targetW = baseW > previewWidth ? previewWidth : baseW;
+  const targetH = Math.round((targetW / baseW) * baseH);
+
+  // 동영상별 개별 위치 설정 적용 (extractVideoFrame과 동일 매핑)
+  let frameOptions = { ...options };
+  if (options.imagePositions && Array.isArray(options.imagePositions)) {
+    const videoPositionsMap = new Map();
+    options.imagePositions.forEach(({ filePath, position }) => {
+      const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || filePath;
+      videoPositionsMap.set(filePath, position);
+      videoPositionsMap.set(fileName, position);
+    });
+
+    const inputFileName = inputPath.split('/').pop() || inputPath.split('\\').pop() || inputPath;
+    const videoPosition = videoPositionsMap.get(inputPath) || videoPositionsMap.get(inputFileName);
+    if (videoPosition) {
+      frameOptions.position = (videoPosition.type === 'custom') ? videoPosition : videoPosition.type;
+    }
+  }
+
+  const m = clamp(Number(frameOptions.margin) || 0, 0, 1000);
+  const boxW = clamp(targetW - m * 2, 1, targetW);
+  const boxH = clamp(targetH - m * 2, 1, targetH);
+
+  const effFont = effectiveFontSize(targetW, targetH, { fontSize: frameOptions.fontSize, fontSizeMode: frameOptions.fontSizeMode });
+
+  if (!frameOptions.text) {
+    return { left: 0, top: 0, width: 0, height: 0, imageWidth: targetW, imageHeight: targetH };
+  }
+
+  const rawSvg = makeTextSVG(
+    frameOptions.text,
+    effFont,
+    1.0,
+    boxW,
+    frameOptions.textColor,
+    frameOptions.fontFamily,
+    { color: frameOptions.shadowColor, offsetX: frameOptions.shadowOffsetX, offsetY: frameOptions.shadowOffsetY, blur: frameOptions.shadowBlur },
+    { color: frameOptions.outlineColor, width: frameOptions.outlineWidth },
+    targetW,
+    targetW
+  );
+  const safeSvg = await fitOverlayInside(rawSvg, boxW, boxH);
+  const svgMeta = await sharp(safeSvg).metadata();
+
+  let pos = frameOptions.position || 'southeast';
+  if (pos === 'auto') pos = 'southeast';
+  const { left, top } = computeLeftTop(targetW, targetH, svgMeta.width || 0, svgMeta.height || 0, pos, m);
+
+  return {
+    left,
+    top,
+    width: svgMeta.width || 0,
+    height: svgMeta.height || 0,
+    imageWidth: targetW,
+    imageHeight: targetH,
+  };
+}
+
+module.exports.getVideoWatermarkPosition = getVideoWatermarkPosition;

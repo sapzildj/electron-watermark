@@ -288,10 +288,9 @@ function renderInteractivePreviews(dataUrls, filePaths, originalImages) {
     card.appendChild(controls);
     previewGrid.appendChild(card);
 
-    // 이미지 로드 후 워터마크 위치 설정
+    // 이미지 로드 후 워터마크 위치/크기 설정 (메인 로직과 동일 계산값 사용)
     img.onload = async () => {
-      const { overlayWidth, overlayHeight } = await setupWatermarkOverlay(overlay, img, filePath, i);
-      updateOverlayPosition(overlay, img, filePath, overlayWidth, overlayHeight);
+      await setupWatermarkOverlay(overlay, img, filePath, i);
     };
   });
 }
@@ -324,7 +323,8 @@ async function calculateActualWatermarkSize(img, filePath) {
         ctx.font = `${effFont}px ${opts.fontFamily || 'Arial'}`;
         const textMetrics = ctx.measureText(text);
         const actualWidth = textMetrics.width * previewScale;
-        const actualHeight = effFont * previewScale * 1.2;
+        // makeTextSVG에서 svgH = scaledFontSize * 1.4 를 사용하므로 동일 계수로 맞춤
+        const actualHeight = effFont * previewScale * 1.4;
         resolve({ width: actualWidth, height: actualHeight, scale: previewScale });
       };
       originalImg.src = img.src;
@@ -354,17 +354,43 @@ async function calculateActualWatermarkSize(img, filePath) {
 async function setupWatermarkOverlay(overlay, img, filePath, imageIndex) {
   const imgRect = img.getBoundingClientRect();
   
-  // 실제 워터마크 크기 계산
-  const watermarkSize = await calculateActualWatermarkSize(img, filePath);
-  let overlayWidth = watermarkSize.width;
-  let overlayHeight = watermarkSize.height;
-  
-  overlay.style.width = overlayWidth + 'px';
-  overlay.style.height = overlayHeight + 'px';
-  
-  // 초기 크기를 오버레이에 저장해서 나중에 참조할 수 있도록 함
-  overlay.dataset.initialWidth = overlayWidth;
-  overlay.dataset.initialHeight = overlayHeight;
+  // 메인과 동일 로직으로 계산된 정확한 프리뷰 위치/크기 시도 (이미지/동영상 모두)
+  let overlayWidth, overlayHeight;
+  try {
+    if (window.api?.getWatermarkPosition) {
+      const opts = await readOptionsForPreview(filePath);
+      const info = await window.api.getWatermarkPosition({ filePath, options: opts });
+      if (info && typeof info.left === 'number') {
+        // 프리뷰 버퍼의 크기(info.imageWidth/Height) → 실제 표시 크기(imgRect)에 맞게 스케일링
+        const scaleX = imgRect.width / (info.imageWidth || img.naturalWidth || 1);
+        const scaleY = imgRect.height / (info.imageHeight || img.naturalHeight || 1);
+        overlayWidth = (info.width || 0) * scaleX;
+        overlayHeight = (info.height || 0) * scaleY;
+        overlay.style.width = overlayWidth + 'px';
+        overlay.style.height = overlayHeight + 'px';
+        overlay.style.left = Math.max(0, info.left * scaleX) + 'px';
+        overlay.style.top = Math.max(0, info.top * scaleY) + 'px';
+        // 초기 크기 저장
+        overlay.dataset.initialWidth = overlayWidth;
+        overlay.dataset.initialHeight = overlayHeight;
+      }
+    }
+  } catch (_) {
+    // 무시하고 폴백 계산으로 진행
+  }
+
+  // 폴백: 클라이언트 측 추정치로 크기/위치 설정
+  if (!overlayWidth || !overlayHeight) {
+    const watermarkSize = await calculateActualWatermarkSize(img, filePath);
+    overlayWidth = watermarkSize.width;
+    overlayHeight = watermarkSize.height;
+    overlay.style.width = overlayWidth + 'px';
+    overlay.style.height = overlayHeight + 'px';
+    overlay.dataset.initialWidth = overlayWidth;
+    overlay.dataset.initialHeight = overlayHeight;
+    // 기존 로직으로 위치 계산
+    updateOverlayPosition(overlay, img, filePath, overlayWidth, overlayHeight);
+  }
 
   let isDragging = false;
   let startX = 0;

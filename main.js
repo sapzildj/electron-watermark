@@ -2,7 +2,7 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { processFolderImages, generatePreviewBuffer, processFolderVideos, extractVideoFrame } = require('./src/watermark');
+const { processFolderImages, generatePreviewBuffer, processFolderVideos, extractVideoFrame, getVideoWatermarkPosition } = require('./src/watermark');
 const fontList = require('font-list');
 
 let mainWindow;
@@ -111,9 +111,16 @@ ipcMain.handle('preview-image', async (_evt, payload) => {
 
 ipcMain.handle('get-watermark-position', async (_evt, payload) => {
   const { filePath, options } = payload;
-  const { getWatermarkPosition } = require('./src/watermark');
-  const position = await getWatermarkPosition(filePath, options, 800);
-  return position;
+  const ext = path.extname(filePath).toLowerCase();
+  const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp']);
+  const VIDEO_EXT = new Set(['.mp4', '.mov', '.m4v', '.mkv', '.webm', '.avi']);
+  if (IMAGE_EXT.has(ext)) {
+    const { getWatermarkPosition } = require('./src/watermark');
+    return await getWatermarkPosition(filePath, options, 800);
+  } else if (VIDEO_EXT.has(ext)) {
+    return await getVideoWatermarkPosition(filePath, options, 800);
+  }
+  throw new Error('Unsupported file type');
 });
 
 // IPC: system font list
