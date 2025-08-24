@@ -92,13 +92,51 @@ electron-watermark/
 
 ### Development Mode
 ```bash
-npm run dev
+npm start
 ```
 
 ### Build
+
+애플리케이션을 실행 가능한 파일로 패키징할 수 있습니다.
+
+#### 모든 플랫폼용 빌드
 ```bash
 npm run build
 ```
+
+#### 특정 플랫폼용 빌드
+```bash
+# macOS용 (.dmg 파일)
+npm run build:mac
+
+# Windows용 (.exe 파일)
+npm run build:win
+
+# Linux용 (.AppImage 파일)
+npm run build:linux
+```
+
+## 📦 배포 및 패키징
+
+### macOS
+- **출력**: `dist/` 폴더에 `.dmg` 파일 생성
+- **설치**: 사용자가 `.dmg` 파일을 열고 Applications 폴더로 드래그
+- **지원 아키텍처**: Intel (x64) 및 Apple Silicon (arm64)
+
+### Windows
+- **출력**: `dist/` 폴더에 `.exe` 인스톨러 생성
+- **설치**: 사용자가 `.exe` 파일을 실행하여 설치
+- **지원 아키텍처**: x64
+
+### Linux
+- **출력**: `dist/` 폴더에 `.AppImage` 파일 생성
+- **설치**: 사용자가 `.AppImage` 파일을 실행하여 사용
+- **지원 아키텍처**: x64
+
+### 배포 시 주의사항
+1. **코드 서명**: macOS와 Windows에서 보안 경고를 줄이려면 코드 서명 권장
+2. **자동 업데이트**: `electron-updater`를 사용하여 자동 업데이트 기능 구현 가능
+3. **파일 크기**: 모든 의존성이 포함되어 파일 크기가 클 수 있음
 
 ## 📝 License
 
