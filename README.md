@@ -97,46 +97,62 @@ npm start
 
 ### Build
 
-애플리케이션을 실행 가능한 파일로 패키징할 수 있습니다.
+You can package the application into executable files.
 
-#### 모든 플랫폼용 빌드
+#### Build for all platforms
 ```bash
 npm run build
 ```
 
-#### 특정 플랫폼용 빌드
+#### Build for specific platforms
 ```bash
-# macOS용 (.dmg 파일)
+# macOS (.dmg file)
 npm run build:mac
 
-# Windows용 (.exe 파일)
+# Windows (.exe file)
 npm run build:win
 
-# Linux용 (.AppImage 파일)
+# Linux (.AppImage file)
 npm run build:linux
 ```
 
-## 📦 배포 및 패키징
+## 📦 Distribution & Packaging
 
 ### macOS
-- **출력**: `dist/` 폴더에 `.dmg` 파일 생성
-- **설치**: 사용자가 `.dmg` 파일을 열고 Applications 폴더로 드래그
-- **지원 아키텍처**: Intel (x64) 및 Apple Silicon (arm64)
+- **Output**: `.dmg` files are generated in the `dist/` folder
+- **Installation**: Users open the `.dmg` file and drag to Applications folder
+- **Supported Architectures**: Intel (x64) and Apple Silicon (arm64)
+
+#### 🔒 macOS Security Warning Resolution
+You may see the following security warning when running the app for the first time:
+
+```
+'Electron Watermark.app' cannot be opened
+Apple cannot check it for malicious software that could harm your Mac or compromise your privacy.
+```
+
+**To resolve:**
+1. Go to **System Preferences** → **Security & Privacy** → **Security** tab
+2. Look for the message: *"Mac blocked 'Electron Watermark.app' to protect your Mac"*
+3. Click **"Open Anyway"** button
+4. The app will run normally
+
+This is macOS's normal security feature for unsigned developer applications.
 
 ### Windows
-- **출력**: `dist/` 폴더에 `.exe` 인스톨러 생성
-- **설치**: 사용자가 `.exe` 파일을 실행하여 설치
-- **지원 아키텍처**: x64
+- **Output**: `.exe` installer is generated in the `dist/` folder
+- **Installation**: Users run the `.exe` file to install
+- **Supported Architectures**: x64
 
 ### Linux
-- **출력**: `dist/` 폴더에 `.AppImage` 파일 생성
-- **설치**: 사용자가 `.AppImage` 파일을 실행하여 사용
-- **지원 아키텍처**: x64
+- **Output**: `.AppImage` files are generated in the `dist/` folder
+- **Installation**: Users run the `.AppImage` file to use
+- **Supported Architectures**: x64
 
-### 배포 시 주의사항
-1. **코드 서명**: macOS와 Windows에서 보안 경고를 줄이려면 코드 서명 권장
-2. **자동 업데이트**: `electron-updater`를 사용하여 자동 업데이트 기능 구현 가능
-3. **파일 크기**: 모든 의존성이 포함되어 파일 크기가 클 수 있음
+### Deployment Considerations
+1. **Code Signing**: Recommended to reduce security warnings on macOS and Windows
+2. **Auto-updates**: Can implement auto-update functionality using `electron-updater`
+3. **File Size**: May be large as all dependencies are included
 
 ## 📝 License
 
