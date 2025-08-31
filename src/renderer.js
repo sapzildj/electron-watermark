@@ -41,8 +41,10 @@ const logoOpacity = document.getElementById('logoOpacity');
 // ===== Persistence Keys =====
 const STORAGE_KEY = 'wmOptions.v1';
 const FOLDER_KEY = 'wmLastFolder.v1';
+const LOGO_PATH_KEY = 'wmLogoPath.v1';
 
 let chosenFolder = null;
+let currentLogoPath = null;
 
 // ===== Persistence helpers =====
 function getCurrentOptionsSnapshot() {
@@ -65,7 +67,7 @@ function getCurrentOptionsSnapshot() {
     logoSizeMode: (logoSizeMode?.value || 'percent'),
     logoSize: Number(logoSize?.value) || 15,
     logoOpacity: Math.max(0, Math.min(1, Number(logoOpacity?.value) || 0.8)),
-    // logo 파일은 보안상 경로/값 저장 X (브라우저가 file input 복원을 금지)
+    // logo 경로는 별도 키로 저장/복원
   };
 }
 
@@ -90,6 +92,14 @@ function applyOptionsToUI(opts) {
   if (typeof opts.logoSizeMode === 'string' && logoSizeMode) logoSizeMode.value = opts.logoSizeMode;
   if (Number.isFinite(opts.logoSize) && logoSize) logoSize.value = String(opts.logoSize);
   if (Number.isFinite(opts.logoOpacity) && logoOpacity) logoOpacity.value = String(opts.logoOpacity);
+  // 로고 경로 힌트
+  try {
+    const saved = localStorage.getItem(LOGO_PATH_KEY);
+    if (saved && logo) {
+      currentLogoPath = saved;
+      logo.title = saved;
+    }
+  } catch (_) {}
 }
 
 // Helper to toggle font size mode visibility
@@ -126,6 +136,25 @@ function loadOptions() {
     return parsed;
   } catch (e) {
     console.error('loadOptions error:', e);
+    return null;
+  }
+}
+
+async function ensureLogoBytesIfNeeded(currentLogoBytes) {
+  if (currentLogoBytes && currentLogoBytes.length > 0) return currentLogoBytes;
+  try {
+    const savedPath = localStorage.getItem(LOGO_PATH_KEY);
+    if (!savedPath) return null;
+    if (!window.api?.checkFileExists) return null;
+    const exists = await window.api.checkFileExists(savedPath);
+    if (!exists) return null;
+    const buf = await window.api.readFileAsBuffer(savedPath);
+    if (!buf) return null;
+    currentLogoPath = savedPath;
+    if (logo) logo.title = savedPath;
+    return new Uint8Array(buf.data ? buf.data : buf);
+  } catch (e) {
+    console.warn('ensureLogoBytesIfNeeded error:', e);
     return null;
   }
 }
@@ -203,6 +232,8 @@ async function buildOptionsForIPC() {
   } else {
     console.log('No logo file selected');
   }
+  // 저장된 경로에서 보강 로딩
+  logoBytes = await ensureLogoBytesIfNeeded(logoBytes);
   const snap = getCurrentOptionsSnapshot();
   
   // 개별 이미지 위치 정보 포함
@@ -268,6 +299,8 @@ async function readOptionsForPreview(filePath = null) {
   } else {
     console.log('Preview - No logo file selected');
   }
+  // 저장된 경로에서 보강 로딩
+  logoBytes = await ensureLogoBytesIfNeeded(logoBytes);
   const snap = getCurrentOptionsSnapshot();
   
   // 특정 파일의 개별 위치 설정이 있으면 적용
@@ -473,15 +506,43 @@ async function setupWatermarkOverlay(overlay, img, filePath, imageIndex) {
       const info = await window.api.getWatermarkPosition({ filePath, options: opts });
       console.log('API response:', info);
       if (info && typeof info.left === 'number') {
-        // 프리뷰 버퍼의 크기(info.imageWidth/Height) → 실제 표시 크기(imgRect)에 맞게 스케일링
-        const scaleX = imgRect.width / (info.imageWidth || img.naturalWidth || 1);
-        const scaleY = imgRect.height / (info.imageHeight || img.naturalHeight || 1);
+        // API에서 반환된 이미지 크기와 실제 표시 크기 간의 스케일링 계산
+        // API가 계산에 사용한 기준 크기(imageWidth/Height)를 사용
+        const apiImageWidth = info.imageWidth || img.naturalWidth || 1;
+        const apiImageHeight = info.imageHeight || img.naturalHeight || 1;
+        
+        // 실제 표시되는 이미지 크기 (CSS에서 계산된 크기)
+        const displayWidth = imgRect.width;
+        const displayHeight = imgRect.height;
+        
+        // 스케일링 비율 계산
+        const scaleX = displayWidth / apiImageWidth;
+        const scaleY = displayHeight / apiImageHeight;
+        
+        console.log('Scaling calculation:', {
+          apiSize: `${apiImageWidth}x${apiImageHeight}`,
+          displaySize: `${displayWidth}x${displayHeight}`,
+          scale: `${scaleX.toFixed(3)}x${scaleY.toFixed(3)}`,
+          originalPosition: `${info.left},${info.top}`,
+          originalSize: `${info.width}x${info.height}`,
+          naturalSize: `${img.naturalWidth}x${img.naturalHeight}`,
+          originalImageSize: `${info.originalImageWidth}x${info.originalImageHeight}`
+        });
+        
         overlayWidth = (info.width || 0) * scaleX;
         overlayHeight = (info.height || 0) * scaleY;
         overlay.style.width = overlayWidth + 'px';
         overlay.style.height = overlayHeight + 'px';
         overlay.style.left = Math.max(0, info.left * scaleX) + 'px';
         overlay.style.top = Math.max(0, info.top * scaleY) + 'px';
+        
+        console.log('Final overlay position:', {
+          left: overlay.style.left,
+          top: overlay.style.top,
+          width: overlay.style.width,
+          height: overlay.style.height
+        });
+
         // 초기 크기 저장
         overlay.dataset.initialWidth = overlayWidth;
         overlay.dataset.initialHeight = overlayHeight;
@@ -766,7 +827,34 @@ if (btnPreview) {
     el.addEventListener(ev, saveOptions);
   });
 
-  
+  // 3-1) 로고 파일 선택 시 경로 영구 저장
+  if (logo) {
+    logo.addEventListener('change', async () => {
+      try {
+        if (logo.files && logo.files[0]) {
+          const file = logo.files[0];
+          if (window.api?.getFilePath) {
+            const realPath = await window.api.getFilePath(file);
+            if (realPath) {
+              currentLogoPath = realPath;
+              localStorage.setItem(LOGO_PATH_KEY, realPath);
+              logo.title = realPath;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to save logo path:', e);
+      }
+    });
+    // 초기 복원
+    try {
+      const savedPath = localStorage.getItem(LOGO_PATH_KEY);
+      if (savedPath) {
+        currentLogoPath = savedPath;
+        logo.title = savedPath;
+      }
+    } catch (_) {}
+  }
 
   // 4) 시스템 폰트 목록 로드하여 datalist/셀렉트 채우기 + 미리보기
   const dl = document.getElementById('fontList');

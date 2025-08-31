@@ -40,26 +40,26 @@
       content: attr(title);
       position: absolute;
       bottom: 100%;
-      left: 50%;
-      transform: translateX(-50%);
+      left: 0;
       background: #333;
       color: white;
       padding: 8px 12px;
       border-radius: 4px;
       font-size: 12px;
-      white-space: nowrap;
-      z-index: 1000;
-      max-width: 300px;
       white-space: normal;
       word-wrap: break-word;
+      z-index: 1000;
+      max-width: 400px;
+      min-width: 200px;
+      width: max-content;
       margin-bottom: 5px;
+      line-height: 1.4;
     }
     [data-tooltip]:hover::before {
       content: '';
       position: absolute;
       bottom: 100%;
-      left: 50%;
-      transform: translateX(-50%);
+      left: 20px;
       border: 5px solid transparent;
       border-top-color: #333;
       z-index: 1000;

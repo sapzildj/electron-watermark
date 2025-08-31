@@ -149,3 +149,49 @@ ipcMain.handle('list-system-fonts', async () => {
     return [];
   }
 });
+
+// IPC: 파일 존재 확인
+ipcMain.handle('check-file-exists', async (_evt, filePath) => {
+  try {
+    return fs.existsSync(filePath);
+  } catch (error) {
+    console.error('Error checking file existence:', error);
+    return false;
+  }
+});
+
+// IPC: 파일을 Buffer로 읽기
+ipcMain.handle('read-file-as-buffer', async (_evt, filePath) => {
+  try {
+    const buffer = fs.readFileSync(filePath);
+    return buffer;
+  } catch (error) {
+    console.error('Error reading file as buffer:', error);
+    throw error;
+  }
+});
+
+// IPC: 파일 경로 얻기 (웹킷 보안 제한 우회)
+ipcMain.handle('get-file-path', async (_evt, file) => {
+  try {
+    // Electron에서는 File 객체의 path 속성을 통해 실제 파일 경로를 얻을 수 있음
+    if (file.path) {
+      return file.path;
+    } else {
+      // path 속성이 없는 경우 (일부 브라우저 호환성 문제)
+      // 임시로 복사 후 경로 반환 (더 안전한 방법)
+      const tempDir = require('os').tmpdir();
+      const tempFileName = `temp_logo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}${require('path').extname(file.name)}`;
+      const tempPath = require('path').join(tempDir, tempFileName);
+
+      // 파일을 임시 경로로 복사
+      const buffer = Buffer.from(await file.arrayBuffer());
+      fs.writeFileSync(tempPath, buffer);
+
+      return tempPath;
+    }
+  } catch (error) {
+    console.error('Error getting file path:', error);
+    throw error;
+  }
+});

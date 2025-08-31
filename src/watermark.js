@@ -326,6 +326,10 @@ function computeLeftTop(baseW, baseH, overlayW, overlayH, position, margin, cust
       top = Number(position.y) || 0;
     }
   } else {
+    // margin을 고려한 유효 영역 계산
+    const effectiveW = Math.max(0, baseW - 2 * m);
+    const effectiveH = Math.max(0, baseH - 2 * m);
+    
     switch (position) {
       case 'southeast':
         left = baseW - overlayW - m;
@@ -340,7 +344,7 @@ function computeLeftTop(baseW, baseH, overlayW, overlayH, position, margin, cust
         top = m;
         break;
       case 'north':
-        left = Math.floor((baseW - overlayW) / 2);
+        left = m + Math.floor((effectiveW - overlayW) / 2);
         top = m;
         break;
       case 'northwest':
@@ -348,13 +352,22 @@ function computeLeftTop(baseW, baseH, overlayW, overlayH, position, margin, cust
         top = m;
         break;
       case 'south':
-        left = Math.floor((baseW - overlayW) / 2);
+        left = m + Math.floor((effectiveW - overlayW) / 2);
         top = baseH - overlayH - m;
+        break;
+      case 'east':
+        left = baseW - overlayW - m;
+        top = m + Math.floor((effectiveH - overlayH) / 2);
+        break;
+      case 'west':
+        left = m;
+        top = m + Math.floor((effectiveH - overlayH) / 2);
         break;
       case 'center':
       default:
-        left = Math.floor((baseW - overlayW) / 2);
-        top = Math.floor((baseH - overlayH) / 2);
+        // center의 경우 margin 영역을 제외한 중앙에 배치
+        left = m + Math.floor((effectiveW - overlayW) / 2);
+        top = m + Math.floor((effectiveH - overlayH) / 2);
         break;
     }
   }
@@ -372,6 +385,11 @@ async function watermarkOne(inputPath, outputPath, opts) {
   // 임시 파일 경로 변수를 함수 최상위에서 선언
   let tempConvertedPath = null;
   let meta = null;
+  
+  // orientation 6 수정 정보 저장 (HEIC 처리 과정에서 설정됨)
+  let wasOrientation6Corrected = false;
+  let originalCorrectedWidth = 0;
+  let originalCorrectedHeight = 0;
 
   // 1) 베이스 생성 및 (옵션) 리사이즈
   let probe;
@@ -384,6 +402,7 @@ async function watermarkOne(inputPath, outputPath, opts) {
     
     probe = sharp(inputPath, { failOn: 'none' });
     meta = await probe.metadata();
+    const originalMeta = meta; // 원본 메타 보존
     
     // HEIC/HEIF 파일인 경우 특별 처리
     const ext = require('path').extname(inputPath).toLowerCase();
@@ -401,9 +420,31 @@ async function watermarkOne(inputPath, outputPath, opts) {
             console.log('Attempting HEIC conversion with macOS sips...');
             tempConvertedPath = await convertHeicWithSips(inputPath);
             
-            // 변환된 파일로 probe 재설정 (EXIF 회전 정보 적용)
-            probe = sharp(tempConvertedPath, { failOn: 'none' }).rotate();
+            // 변환된 파일로 probe 재설정
+            probe = sharp(tempConvertedPath, { failOn: 'none' });
             meta = await probe.metadata();
+
+            // HEIC 세로 이미지 처리: 원본이 세로였는데 변환 후 가로라면 픽셀을 270° 회전해 세로로 복원
+            const originalIsPortrait = originalMeta.height > originalMeta.width;
+            const convertedIsLandscape = meta.width > meta.height;
+            if (originalIsPortrait && convertedIsLandscape) {
+              probe = sharp(tempConvertedPath, { failOn: 'none' }).rotate(270);
+              const rotatedMeta = await probe.metadata();
+              meta = rotatedMeta;
+              wasOrientation6Corrected = true;
+              originalCorrectedWidth = meta.width;
+              originalCorrectedHeight = meta.height;
+              console.log('Applied 270° rotation to restore portrait:', { width: meta.width, height: meta.height });
+            } else if (meta.orientation === 6) {
+              // 보수적 처리: EXIF가 남아있다면 auto-rotate 적용
+              probe = sharp(tempConvertedPath, { failOn: 'none' }).rotate();
+              meta = await probe.metadata();
+              wasOrientation6Corrected = true;
+              originalCorrectedWidth = meta.width;
+              originalCorrectedHeight = meta.height;
+              console.log('Applied auto-rotation for orientation 6:', { width: meta.width, height: meta.height });
+            }
+            
             console.log('sips conversion successful with auto-rotation, new metadata:', meta);
           } catch (sipsError) {
             console.log('sips conversion failed, trying Sharp fallback:', sipsError.message);
@@ -466,12 +507,21 @@ async function watermarkOne(inputPath, outputPath, opts) {
   }
   
   let img;
+  
   if (maxWidth && meta.width && meta.width > maxWidth) {
     const resizedBuf = await probe
       .resize({ width: maxWidth })
       .toBuffer();
     img = sharp(resizedBuf, { failOn: 'none' });
     meta = await img.metadata(); // 리사이즈 후 실제 메타
+    
+    // orientation 6 수정이 있었다면 비율에 맞게 다시 적용
+    if (wasOrientation6Corrected) {
+      const scale = meta.width / originalCorrectedWidth;
+      meta.width = originalCorrectedWidth * scale;
+      meta.height = originalCorrectedHeight * scale;
+      console.log('Re-applied orientation 6 correction after resize:', { width: meta.width, height: meta.height });
+    }
   } else {
     img = probe;
     // meta는 이미 위에서 가져온 메타 사용
@@ -532,8 +582,16 @@ async function watermarkOne(inputPath, outputPath, opts) {
     console.log('Logo buffer size:', logoBuf.length);
     
     // 로고 목표 크기 계산 - 원본 이미지 크기 기준으로 계산
-    const originalW = meta.width || 0;
-    const originalH = meta.height || 0;
+    // orientation 6 수정이 있었다면 원본 크기 사용
+    console.log('Logo size calculation debug:', {
+      wasOrientation6Corrected,
+      originalCorrectedWidth,
+      originalCorrectedHeight,
+      metaWidth: meta.width,
+      metaHeight: meta.height
+    });
+    const originalW = wasOrientation6Corrected ? originalCorrectedWidth : (meta.width || 0);
+    const originalH = wasOrientation6Corrected ? originalCorrectedHeight : (meta.height || 0);
     const targetLogoSize = effectiveLogoSize(originalW, originalH, { logoSize: opts.logoSize, logoSizeMode: opts.logoSizeMode });
     console.log('Target logo size:', targetLogoSize, 'px');
     
@@ -552,7 +610,7 @@ async function watermarkOne(inputPath, outputPath, opts) {
     if (logoPosition === 'auto') logoPosition = 'southeast';
     
     // 텍스트가 있는 경우 로고 위치를 조정
-    if (text && position !== 'custom') {
+    if (text && typeof position === 'string' && position !== 'custom') {
       switch(logoPosition) {
         case 'southeast':
           logoPosition = 'southwest'; // 텍스트가 southeast에 있으면 로고는 southwest
@@ -768,8 +826,30 @@ async function generatePreviewBuffer(inputPath, options, previewWidth = 800) {
             console.log('Preview - Attempting HEIC conversion with macOS sips...');
             tempConvertedPath = await convertHeicWithSips(inputPath);
             
-            // 변환된 파일로 probe 재설정 (EXIF 회전 정보 적용)
-            inputProbe = sharp(tempConvertedPath, { failOn: 'none' }).rotate();
+            // 변환된 파일로 probe 재설정 (sips가 이미 회전을 적용했으므로 추가 회전 없음)
+            inputProbe = sharp(tempConvertedPath, { failOn: 'none' });
+            const previewMeta = await inputProbe.metadata();
+            
+            // HEIC 세로 이미지 처리: 원본이 세로(height > width)였는데 sips 변환 후 가로가 된 경우
+            const originalIsPortrait = inputMeta.height > inputMeta.width;
+            const convertedIsLandscape = previewMeta.width > previewMeta.height;
+            
+            if (originalIsPortrait && convertedIsLandscape) {
+              // sips가 세로 이미지를 가로로 회전시켰으므로, 원본 크기를 사용
+              console.log('Preview - HEIC portrait image detected, using original dimensions:', { 
+                original: `${inputMeta.width}x${inputMeta.height}`,
+                converted: `${previewMeta.width}x${previewMeta.height}`,
+                usingOriginal: `${inputMeta.width}x${inputMeta.height}`
+              });
+            } else if (previewMeta.orientation === 6) {
+              // orientation 6은 90도 시계방향 회전을 의미하므로, 원본 크기로 되돌림
+              const originalW = previewMeta.height;
+              const originalH = previewMeta.width;
+              previewMeta.width = originalW;
+              previewMeta.height = originalH;
+              console.log('Preview - Corrected metadata for orientation 6:', { width: previewMeta.width, height: previewMeta.height });
+            }
+            
             console.log('Preview - sips conversion successful with auto-rotation');
           } catch (sipsError) {
             console.log('Preview - sips conversion failed, trying Sharp fallback:', sipsError.message);
@@ -876,10 +956,8 @@ async function generatePreviewBuffer(inputPath, options, previewWidth = 800) {
   if (logoBuf) {
     console.log('Preview - Logo buffer size:', logoBuf.length);
     
-    // 프리뷰용 로고 목표 크기 계산 - 원본 이미지 크기 기준으로 계산
-    const originalW = meta.width || 0;
-    const originalH = meta.height || 0;
-    const targetLogoSize = effectiveLogoSize(originalW, originalH, { logoSize: options.logoSize, logoSizeMode: options.logoSizeMode });
+    // 프리뷰용 로고 목표 크기 계산 - 프리뷰 기준(baseW/baseH)으로 통일
+    const targetLogoSize = effectiveLogoSize(baseW, baseH, { logoSize: options.logoSize, logoSizeMode: options.logoSizeMode });
     console.log('Preview - Target logo size:', targetLogoSize, 'px');
     
     // 프리뷰에서도 로고를 PNG로 변환하고 크기 조정
@@ -893,9 +971,10 @@ async function generatePreviewBuffer(inputPath, options, previewWidth = 800) {
     console.log('Preview - Logo metadata:', { width: lmeta.width, height: lmeta.height });
     // 프리뷰에서도 로고 위치 계산 - 텍스트와 겹치지 않도록 조정
     let logoPosition = position === 'auto' ? 'southeast' : (position || 'southeast');
+    console.log('Preview - Initial logo position:', logoPosition, 'from position:', position);
     
-    // 텍스트가 있는 경우 로고 위치를 조정
-    if (text && position !== 'custom') {
+    // 텍스트가 있는 경우 로고 위치를 조정 (프리셋 문자열일 때만)
+    if (text && typeof position === 'string' && position !== 'custom') {
       switch(logoPosition) {
         case 'southeast':
           logoPosition = 'southwest';
@@ -952,6 +1031,7 @@ async function getWatermarkPosition(inputPath, options, previewWidth = 800) {
     // 실제 처리와 동일한 리사이징 로직 사용
     let probe = sharp(inputPath, { failOn: 'none' });
     let inputMeta = await probe.metadata();
+    const originalMeta = inputMeta; // 원본 메타 보존
     
     // HEIC/HEIF 파일인 경우 특별 처리
     const ext = require('path').extname(inputPath).toLowerCase();
@@ -966,9 +1046,30 @@ async function getWatermarkPosition(inputPath, options, previewWidth = 800) {
             console.log('getWatermarkPosition - Attempting HEIC conversion with macOS sips...');
             tempConvertedPath = await convertHeicWithSips(inputPath);
             
-            // 변환된 파일로 probe 재설정 (EXIF 회전 정보 적용)
-            probe = sharp(tempConvertedPath, { failOn: 'none' }).rotate();
+            // 변환된 파일로 probe 재설정 (sips가 이미 회전을 적용했으므로 추가 회전 없음)
+            probe = sharp(tempConvertedPath, { failOn: 'none' });
             inputMeta = await probe.metadata();
+            
+            // HEIC 세로 이미지 처리: 원본이 세로(height > width)였는데 sips 변환 후 가로가 된 경우
+            const originalIsPortrait = originalMeta.height > originalMeta.width;
+            const convertedIsLandscape = inputMeta.width > inputMeta.height;
+            
+            if (originalIsPortrait && convertedIsLandscape) {
+              // sips가 세로 이미지를 가로로 회전시켰으므로, 원본 크기를 사용
+              console.log('getWatermarkPosition - HEIC portrait image detected, using original dimensions:', { 
+                original: `${originalMeta.width}x${originalMeta.height}`,
+                converted: `${inputMeta.width}x${inputMeta.height}`,
+                usingOriginal: `${originalMeta.width}x${originalMeta.height}`
+              });
+            } else if (inputMeta.orientation === 6) {
+              // orientation 6은 90도 시계방향 회전을 의미하므로, 원본 크기로 되돌림
+              const originalW = inputMeta.height;
+              const originalH = inputMeta.width;
+              inputMeta.width = originalW;
+              inputMeta.height = originalH;
+              console.log('getWatermarkPosition - Corrected metadata for orientation 6:', { width: inputMeta.width, height: inputMeta.height });
+            }
+            
             console.log('getWatermarkPosition - sips conversion successful with auto-rotation');
           } catch (sipsError) {
             console.log('getWatermarkPosition - sips conversion failed, trying Sharp fallback:', sipsError.message);
@@ -1053,7 +1154,67 @@ async function getWatermarkPosition(inputPath, options, previewWidth = 800) {
 
   let watermarkInfo = null;
 
-  if (text) {
+  // 로고 워터마크가 있는 경우 처리
+  if (logoBytes && logoBytes.length > 0) {
+    const logoBuf = normalizeBuffer(logoBytes);
+    if (logoBuf) {
+      // 로고 목표 크기 계산 - 프리뷰/표시 크기와 동일 기준으로 계산(일관성)
+      const targetLogoSize = effectiveLogoSize(baseW, baseH, { logoSize: options.logoSize, logoSizeMode: options.logoSizeMode });
+      
+      // 로고를 PNG로 변환하고 크기 조정
+      const pngLogo = await sharp(logoBuf)
+        .png()
+        .resize({ width: targetLogoSize, height: targetLogoSize, fit: 'inside', withoutEnlargement: false })
+        .toBuffer();
+      
+      const safeLogo = await fitOverlayInside(pngLogo, boxW, boxH);
+      const lmeta = await sharp(safeLogo).metadata();
+      
+      // 로고 위치 계산 - 텍스트와 겹치지 않도록 조정
+      let logoPosition = position === 'auto' ? 'southeast' : (position || 'southeast');
+      
+      // 텍스트가 있는 경우 로고 위치를 조정 (프리셋 문자열일 때만)
+      if (text && typeof position === 'string' && position !== 'custom') {
+        switch(logoPosition) {
+          case 'southeast':
+            logoPosition = 'southwest';
+            break;
+          case 'southwest':
+            logoPosition = 'southeast';
+            break;
+          case 'northeast':
+            logoPosition = 'northwest';
+            break;
+          case 'northwest':
+            logoPosition = 'northeast';
+            break;
+          default:
+            logoPosition = 'northwest';
+        }
+      }
+      
+      const { left: logoLeft, top: logoTop } = computeLeftTop(baseW, baseH, lmeta.width || 0, lmeta.height || 0, logoPosition, m);
+      
+      watermarkInfo = {
+        left: logoLeft,
+        top: logoTop,
+        width: lmeta.width || 0,
+        height: lmeta.height || 0,
+        imageWidth: baseW,
+        imageHeight: baseH,
+        originalImageWidth: inputMeta.width,
+        originalImageHeight: inputMeta.height
+      };
+      
+      console.log('Logo watermark position calculated:', {
+        imageSize: `${baseW}x${baseH}`,
+        logoSize: `${lmeta.width}x${lmeta.height}`,
+        position: `${logoLeft},${logoTop}`,
+        originalSize: `${inputMeta.width}x${inputMeta.height}`,
+        positionType: logoPosition
+      });
+    }
+  } else if (text) {
     const rawSvg = makeTextSVG(
       text,
       effFont,
@@ -1079,7 +1240,9 @@ async function getWatermarkPosition(inputPath, options, previewWidth = 800) {
       width: svgMeta.width || 0,
       height: svgMeta.height || 0,
       imageWidth: baseW,
-      imageHeight: baseH
+      imageHeight: baseH,
+      originalImageWidth: inputMeta.width,
+      originalImageHeight: inputMeta.height
     };
     
     console.log('Watermark position calculated:', {

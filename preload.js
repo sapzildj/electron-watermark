@@ -16,4 +16,8 @@ contextBridge.exposeInMainWorld('api', {
   previewImage: (payload) => ipcRenderer.invoke('preview-image', payload),
   getWatermarkPosition: (payload) => ipcRenderer.invoke('get-watermark-position', payload),
   listSystemFonts: () => ipcRenderer.invoke('list-system-fonts'),
+  // 파일 시스템 보조 (로고 경로 영구 저장 지원)
+  checkFileExists: (filePath) => ipcRenderer.invoke('check-file-exists', filePath),
+  readFileAsBuffer: (filePath) => ipcRenderer.invoke('read-file-as-buffer', filePath),
+  getFilePath: (file) => ipcRenderer.invoke('get-file-path', file),
 });
