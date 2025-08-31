@@ -51,6 +51,23 @@ ipcMain.handle('choose-folder', async () => {
   }
 });
 
+// IPC: 로고 바이트를 영구 경로(userData)에 저장하고 경로 반환
+ipcMain.handle('save-logo-bytes', async (_evt, payload) => {
+  try {
+    const { name, bytes } = payload || {};
+    if (!bytes) throw new Error('No bytes provided');
+    const userData = app.getPath('userData');
+    const ext = (typeof name === 'string' && path.extname(name)) || '.png';
+    const target = path.join(userData, `wm_logo_saved${ext}`);
+    const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes.data ? bytes.data : bytes);
+    fs.writeFileSync(target, buf);
+    return target;
+  } catch (error) {
+    console.error('Error saving logo bytes:', error);
+    throw error;
+  }
+});
+
 // IPC: process images
 ipcMain.handle('process-images', async (_evt, payload) => {
   const { folder, options } = payload;

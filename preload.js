@@ -20,4 +20,5 @@ contextBridge.exposeInMainWorld('api', {
   checkFileExists: (filePath) => ipcRenderer.invoke('check-file-exists', filePath),
   readFileAsBuffer: (filePath) => ipcRenderer.invoke('read-file-as-buffer', filePath),
   getFilePath: (file) => ipcRenderer.invoke('get-file-path', file),
+  saveLogoBytes: (payload) => ipcRenderer.invoke('save-logo-bytes', payload),
 });

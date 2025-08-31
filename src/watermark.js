@@ -207,6 +207,64 @@ async function pickAutoPosition(baseSharp, baseW, baseH, overlayW, overlayH, mar
   return best;
 }
 
+// 공통: 텍스트/로고 컴포지트 계산 로직(프리뷰/실제 저장 모두 동일 사용)
+async function computeImageComposites(baseW, baseH, m, options) {
+  const { text, fontSize, opacity, position, logoBytes, textColor, fontFamily, shadowColor, shadowOffsetX, shadowOffsetY, shadowBlur, outlineColor, outlineWidth, logoSize, logoSizeMode, logoOpacity } = options;
+  const boxW = clamp(baseW - m * 2, 1, baseW);
+  const boxH = clamp(baseH - m * 2, 1, baseH);
+  const composites = [];
+
+  // Text
+  if (text) {
+    const effFont = effectiveFontSize(baseW, baseH, { fontSize, fontSizeMode: options.fontSizeMode });
+    const rawSvg = makeTextSVG(
+      text,
+      effFont,
+      clamp(Number(opacity) || 0.35, 0, 1),
+      boxW,
+      textColor,
+      fontFamily,
+      { color: shadowColor, offsetX: shadowOffsetX, offsetY: shadowOffsetY, blur: shadowBlur },
+      { color: outlineColor, width: outlineWidth },
+      baseW,
+      baseW
+    );
+    const safeSvg = await fitOverlayInside(rawSvg, boxW, boxH);
+    const svgMeta = await sharp(safeSvg).metadata();
+    let pos = position || 'southeast';
+    if (pos === 'auto') pos = 'southeast';
+    const { left: svgLeft, top: svgTop } = computeLeftTop(baseW, baseH, svgMeta.width || 0, svgMeta.height || 0, pos, m);
+    composites.push({ input: safeSvg, left: svgLeft, top: svgTop, _kind: 'text', _w: svgMeta.width, _h: svgMeta.height });
+  }
+
+  // Logo
+  const lbuf = normalizeBuffer(logoBytes);
+  if (lbuf) {
+    const targetLogoSize = effectiveLogoSize(baseW, baseH, { logoSize, logoSizeMode });
+    const pngLogo = await sharp(lbuf)
+      .png()
+      .resize({ width: targetLogoSize, height: targetLogoSize, fit: 'inside', withoutEnlargement: false })
+      .toBuffer();
+    const safeLogo = await fitOverlayInside(pngLogo, boxW, boxH);
+    const lmeta = await sharp(safeLogo).metadata();
+
+    let logoPosition = position === 'auto' ? 'southeast' : (position || 'southeast');
+    if (text && typeof position === 'string' && position !== 'custom') {
+      switch (logoPosition) {
+        case 'southeast': logoPosition = 'southwest'; break;
+        case 'southwest': logoPosition = 'southeast'; break;
+        case 'northeast': logoPosition = 'northwest'; break;
+        case 'northwest': logoPosition = 'northeast'; break;
+        default: logoPosition = 'northwest';
+      }
+    }
+    const { left: logoLeft, top: logoTop } = computeLeftTop(baseW, baseH, lmeta.width || 0, lmeta.height || 0, logoPosition, m);
+    composites.push({ input: safeLogo, left: logoLeft, top: logoTop, blend: 'over', opacity: clamp(Number(logoOpacity) || 0.8, 0, 1), _kind: 'logo', _w: lmeta.width, _h: lmeta.height });
+  }
+
+  return composites;
+}
+
 // 텍스트용 SVG를 "최대 폭" 안으로 생성
 function makeTextSVG(text, fontSize, opacity, maxWidthPx, textColor, fontFamily, shadow, outline, imageWidth = null, baseImageWidth = 800) {
   const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -424,26 +482,18 @@ async function watermarkOne(inputPath, outputPath, opts) {
             probe = sharp(tempConvertedPath, { failOn: 'none' });
             meta = await probe.metadata();
 
-            // HEIC 세로 이미지 처리: 원본이 세로였는데 변환 후 가로라면 픽셀을 270° 회전해 세로로 복원
-            const originalIsPortrait = originalMeta.height > originalMeta.width;
-            const convertedIsLandscape = meta.width > meta.height;
-            if (originalIsPortrait && convertedIsLandscape) {
-              probe = sharp(tempConvertedPath, { failOn: 'none' }).rotate(270);
-              const rotatedMeta = await probe.metadata();
-              meta = rotatedMeta;
-              wasOrientation6Corrected = true;
-              originalCorrectedWidth = meta.width;
-              originalCorrectedHeight = meta.height;
-              console.log('Applied 270° rotation to restore portrait:', { width: meta.width, height: meta.height });
-            } else if (meta.orientation === 6) {
-              // 보수적 처리: EXIF가 남아있다면 auto-rotate 적용
-              probe = sharp(tempConvertedPath, { failOn: 'none' }).rotate();
+            // 변환된 파일을 안전하게 정규화: EXIF 회전 반영 후 ORIENTATION=1로 통일
+            probe = sharp(tempConvertedPath, { failOn: 'none' }).rotate().withMetadata({ orientation: 1 });
+            // 변환 파이프라인을 실제 실행하여 정규화된 실제 크기 취득
+            {
+              const normalizedBuf = await probe.toBuffer();
+              probe = sharp(normalizedBuf, { failOn: 'none' });
               meta = await probe.metadata();
-              wasOrientation6Corrected = true;
-              originalCorrectedWidth = meta.width;
-              originalCorrectedHeight = meta.height;
-              console.log('Applied auto-rotation for orientation 6:', { width: meta.width, height: meta.height });
             }
+            wasOrientation6Corrected = true;
+            originalCorrectedWidth = meta.width;
+            originalCorrectedHeight = meta.height;
+            console.log('Applied orientation normalize (HEIC):', { width: meta.width, height: meta.height });
             
             console.log('sips conversion successful with auto-rotation, new metadata:', meta);
           } catch (sipsError) {
@@ -496,6 +546,17 @@ async function watermarkOne(inputPath, outputPath, opts) {
       } else {
         throw new Error(`Invalid HEIC file: ${require('path').basename(inputPath)}`);
       }
+    } else {
+      // 비 HEIC: EXIF orientation 정규화 (JPEG 포함)
+      if (meta && typeof meta.orientation === 'number' && meta.orientation !== 1) {
+        try {
+          probe = sharp(inputPath, { failOn: 'none' }).rotate().withMetadata({ orientation: 1 });
+          const normalizedBuf = await probe.toBuffer();
+          probe = sharp(normalizedBuf, { failOn: 'none' });
+          meta = await probe.metadata();
+          console.log('Normalized non-HEIC orientation:', { width: meta.width, height: meta.height });
+        } catch (_) {}
+      }
     }
   } catch (error) {
     // 에러 발생 시 임시 파일 정리
@@ -513,138 +574,44 @@ async function watermarkOne(inputPath, outputPath, opts) {
       .resize({ width: maxWidth })
       .toBuffer();
     img = sharp(resizedBuf, { failOn: 'none' });
-    meta = await img.metadata(); // 리사이즈 후 실제 메타
-    
-    // orientation 6 수정이 있었다면 비율에 맞게 다시 적용
-    if (wasOrientation6Corrected) {
-      const scale = meta.width / originalCorrectedWidth;
-      meta.width = originalCorrectedWidth * scale;
-      meta.height = originalCorrectedHeight * scale;
-      console.log('Re-applied orientation 6 correction after resize:', { width: meta.width, height: meta.height });
-    }
+    meta = await img.metadata();
   } else {
     img = probe;
-    // meta는 이미 위에서 가져온 메타 사용
   }
 
-  // 2) 합성할 수 있는 최대 박스 계산 (여백 고려)
+  // 2) 합성 요소 계산(프리뷰와 동일 로직)
   const m = clamp(Number(margin) || 0, 0, 1000);
   const baseW = meta.width || 0;
   const baseH = meta.height || 0;
-  const boxW = clamp(baseW - m * 2, 1, baseW);   // 최소 1 보장
-  const boxH = clamp(baseH - m * 2, 1, baseH);
-
-  const effFont = effectiveFontSize(baseW, baseH, { fontSize, fontSizeMode: opts.fontSizeMode });
-  const effOpacity = clamp(Number(opacity) || 0.35, 0, 1);
-
-  const composites = [];
-
-  // 3) 텍스트 SVG (이미지 크기에 맞춰 스케일링)
-  if (text) {
-    const rawSvg = makeTextSVG(
-      text,
-      effFont,
-      effOpacity,
-      boxW,
-      textColor,
-      fontFamily,
-      { color: shadowColor, offsetX: shadowOffsetX, offsetY: shadowOffsetY, blur: shadowBlur },
-      { color: outlineColor, width: outlineWidth },
-      baseW,  // 현재 이미지 너비
-      baseW   // 기준 너비를 동일하게 주어 내부 스케일링 무효화
-    );
-    // SVG도 합성 전 안전 박스 크기(boxW x boxH) 안으로 축소
-    const safeSvg = await fitOverlayInside(rawSvg, boxW, boxH);
-
-    const svgMeta = await sharp(safeSvg).metadata();
-    let pos = position || 'southeast';
-    if (pos === 'auto') pos = 'southeast';
-    const { left: svgLeft, top: svgTop } = computeLeftTop(baseW, baseH, svgMeta.width || 0, svgMeta.height || 0, pos, m);
-    
-    console.log('Actual watermark applied:', {
-      imageSize: `${baseW}x${baseH}`,
-      watermarkSize: `${svgMeta.width}x${svgMeta.height}`,
-      position: `${svgLeft},${svgTop}`,
-      positionType: pos
+  const composites = await computeImageComposites(baseW, baseH, m, {
+    text,
+    fontSize,
+    fontSizeMode: opts.fontSizeMode,
+    opacity,
+    position,
+    logoBytes,
+    textColor,
+    fontFamily,
+    shadowColor,
+    shadowOffsetX,
+    shadowOffsetY,
+    shadowBlur,
+    outlineColor,
+    outlineWidth,
+    logoSize: opts.logoSize,
+    logoSizeMode: opts.logoSizeMode,
+    logoOpacity: opts.logoOpacity,
+  });
+  // 저장 경로 로깅
+  try {
+    const textComp = composites.find(c => c._kind === 'text');
+    const logoComp = composites.find(c => c._kind === 'logo');
+    console.log('Save - composites:', {
+      base: `${baseW}x${baseH}`,
+      text: textComp ? { left: textComp.left, top: textComp.top, w: textComp._w, h: textComp._h } : null,
+      logo: logoComp ? { left: logoComp.left, top: logoComp.top, w: logoComp._w, h: logoComp._h, opacity: logoComp.opacity } : null
     });
-    
-    composites.push({
-      input: safeSvg,
-      left: svgLeft,
-      top: svgTop,
-    });
-  }
-
-  // 4) 로고 PNG
-  const logoBuf = normalizeBuffer(logoBytes);
-  console.log('Processing logo:', logoBuf ? 'Logo buffer exists' : 'No logo buffer');
-  if (logoBuf) {
-    console.log('Logo buffer size:', logoBuf.length);
-    
-    // 로고 목표 크기 계산 - 원본 이미지 크기 기준으로 계산
-    // orientation 6 수정이 있었다면 원본 크기 사용
-    console.log('Logo size calculation debug:', {
-      wasOrientation6Corrected,
-      originalCorrectedWidth,
-      originalCorrectedHeight,
-      metaWidth: meta.width,
-      metaHeight: meta.height
-    });
-    const originalW = wasOrientation6Corrected ? originalCorrectedWidth : (meta.width || 0);
-    const originalH = wasOrientation6Corrected ? originalCorrectedHeight : (meta.height || 0);
-    const targetLogoSize = effectiveLogoSize(originalW, originalH, { logoSize: opts.logoSize, logoSizeMode: opts.logoSizeMode });
-    console.log('Target logo size:', targetLogoSize, 'px');
-    
-    // 로고를 PNG로 변환하고 크기 조정
-    const pngLogo = await sharp(logoBuf)
-      .png()
-      .resize({ width: targetLogoSize, height: targetLogoSize, fit: 'inside', withoutEnlargement: false })
-      .toBuffer();
-    
-    // 안전 박스 크기 체크 (이미 리사이즈했지만 추가 안전 처리)
-    const safeLogo = await fitOverlayInside(pngLogo, boxW, boxH);
-    const lmeta = await sharp(safeLogo).metadata();
-    console.log('Logo metadata:', { width: lmeta.width, height: lmeta.height });
-    // 로고 위치 계산 - 텍스트와 겹치지 않도록 조정
-    let logoPosition = position;
-    if (logoPosition === 'auto') logoPosition = 'southeast';
-    
-    // 텍스트가 있는 경우 로고 위치를 조정
-    if (text && typeof position === 'string' && position !== 'custom') {
-      switch(logoPosition) {
-        case 'southeast':
-          logoPosition = 'southwest'; // 텍스트가 southeast에 있으면 로고는 southwest
-          break;
-        case 'southwest':
-          logoPosition = 'southeast';
-          break;
-        case 'northeast':
-          logoPosition = 'northwest';
-          break;
-        case 'northwest':
-          logoPosition = 'northeast';
-          break;
-        default:
-          logoPosition = 'northwest'; // center나 다른 경우
-      }
-      console.log('Logo position adjusted to avoid text overlap:', logoPosition);
-    }
-    
-    const { left: logoLeft, top: logoTop } = computeLeftTop(baseW, baseH, lmeta.width || 0, lmeta.height || 0, logoPosition, m);
-    console.log('Logo position:', { left: logoLeft, top: logoTop });
-    // 로고 불투명도 (텍스트 불투명도와 별도)
-    const logoOpacity = clamp(Number(opts.logoOpacity) || 0.8, 0, 1);
-    console.log('Logo opacity:', logoOpacity);
-    
-    composites.push({
-      input: safeLogo,
-      left: logoLeft,
-      top: logoTop,
-      blend: 'over',
-      opacity: logoOpacity,
-    });
-    console.log('Logo composite added to list');
-  }
+  } catch (_) {}
 
   // 5) 저장 (오버레이 없으면 원본 그대로 저장)
   const outputExt = require('path').extname(outputPath).toLowerCase();
@@ -906,85 +873,19 @@ async function generatePreviewBuffer(inputPath, options, previewWidth = 800) {
   const effFont = effectiveFontSize(baseW, baseH, { fontSize, fontSizeMode: options.fontSizeMode });
   const effOpacity = clamp(Number(opacity) || 0.35, 0, 1);
 
-  const composites = [];
+  const composites = await computeImageComposites(baseW, baseH, m, options);
+  // 로깅
+  try {
+    const textComp = composites.find(c => c._kind === 'text');
+    const logoComp = composites.find(c => c._kind === 'logo');
+    console.log('Preview - composites:', {
+      base: `${baseW}x${baseH}`,
+      text: textComp ? { left: textComp.left, top: textComp.top, w: textComp._w, h: textComp._h } : null,
+      logo: logoComp ? { left: logoComp.left, top: logoComp.top, w: logoComp._w, h: logoComp._h, opacity: logoComp.opacity } : null
+    });
+  } catch (_) {}
 
-  if (text) {
-    const rawSvg = makeTextSVG(
-      text,
-      effFont,
-      effOpacity,
-      boxW,
-      textColor,
-      fontFamily,
-      { color: shadowColor, offsetX: shadowOffsetX, offsetY: shadowOffsetY, blur: shadowBlur },
-      { color: outlineColor, width: outlineWidth },
-      baseW,  // 현재 이미지 너비
-      baseW   // 기준 너비를 동일하게 주어 내부 스케일링 무효화
-    );
-    const safeSvg = await fitOverlayInside(rawSvg, boxW, boxH);
-
-    const svgMeta = await sharp(safeSvg).metadata();
-    let pos = position || 'southeast';
-    if (pos === 'auto') pos = 'southeast';
-    const { left: svgLeft, top: svgTop } = computeLeftTop(baseW, baseH, svgMeta.width || 0, svgMeta.height || 0, pos, m);
-    composites.push({ input: safeSvg, left: svgLeft, top: svgTop });
-  }
-
-  const logoBuf = normalizeBuffer(logoBytes);
-  console.log('Preview - Processing logo:', logoBuf ? 'Logo buffer exists' : 'No logo buffer');
-  if (logoBuf) {
-    console.log('Preview - Logo buffer size:', logoBuf.length);
-    
-    // 프리뷰용 로고 목표 크기 계산 - 프리뷰 기준(baseW/baseH)으로 통일
-    const targetLogoSize = effectiveLogoSize(baseW, baseH, { logoSize: options.logoSize, logoSizeMode: options.logoSizeMode });
-    console.log('Preview - Target logo size:', targetLogoSize, 'px');
-    
-    // 프리뷰에서도 로고를 PNG로 변환하고 크기 조정
-    const pngLogo = await sharp(logoBuf)
-      .png()
-      .resize({ width: targetLogoSize, height: targetLogoSize, fit: 'inside', withoutEnlargement: false })
-      .toBuffer();
-    
-    const safeLogo = await fitOverlayInside(pngLogo, boxW, boxH);
-    const lmeta = await sharp(safeLogo).metadata();
-    console.log('Preview - Logo metadata:', { width: lmeta.width, height: lmeta.height });
-    // 프리뷰에서도 로고 위치 계산 - 텍스트와 겹치지 않도록 조정
-    let logoPosition = position === 'auto' ? 'southeast' : (position || 'southeast');
-    console.log('Preview - Initial logo position:', logoPosition, 'from position:', position);
-    
-    // 텍스트가 있는 경우 로고 위치를 조정 (프리셋 문자열일 때만)
-    if (text && typeof position === 'string' && position !== 'custom') {
-      switch(logoPosition) {
-        case 'southeast':
-          logoPosition = 'southwest';
-          break;
-        case 'southwest':
-          logoPosition = 'southeast';
-          break;
-        case 'northeast':
-          logoPosition = 'northwest';
-          break;
-        case 'northwest':
-          logoPosition = 'northeast';
-          break;
-        default:
-          logoPosition = 'northwest';
-      }
-      console.log('Preview - Logo position adjusted to avoid text overlap:', logoPosition);
-    }
-    
-    const { left: logoLeft, top: logoTop } = computeLeftTop(baseW, baseH, lmeta.width || 0, lmeta.height || 0, logoPosition, m);
-    console.log('Preview - Logo position:', { left: logoLeft, top: logoTop });
-    
-    // 프리뷰용 로고 불투명도
-    const logoOpacity = clamp(Number(options.logoOpacity) || 0.8, 0, 1);
-    console.log('Preview - Logo opacity:', logoOpacity);
-    
-    composites.push({ input: safeLogo, left: logoLeft, top: logoTop, blend: 'over', opacity: logoOpacity });
-    console.log('Preview - Logo composite added to list');
-  }
-
-  const pipeline = composites.length > 0 ? base.composite(composites) : base;
+  const pipeline = composites.length > 0 ? base.composite(composites.map(({ _kind, _w, _h, ...rest }) => rest)) : base;
   const result = await pipeline.png().toBuffer();
   
   // 처리 완료 후 임시 파일 정리

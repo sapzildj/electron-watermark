@@ -222,6 +222,19 @@ async function buildOptionsForIPC() {
     
     const buf = await file.arrayBuffer();
     logoBytes = new Uint8Array(buf); // structured clone OK
+    // userData에 로고를 저장해 경로를 영구화
+    try {
+      if (window.api?.saveLogoBytes) {
+        const savedPath = await window.api.saveLogoBytes({ name: file.name, bytes: logoBytes });
+        if (savedPath) {
+          currentLogoPath = savedPath;
+          localStorage.setItem(LOGO_PATH_KEY, savedPath);
+          if (logo) logo.title = savedPath;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to persist logo bytes:', e);
+    }
     console.log('Logo bytes length:', logoBytes.length);
     
     // 첫 몇 바이트 확인 (PNG 매직 넘버 체크)
@@ -296,6 +309,19 @@ async function readOptionsForPreview(filePath = null) {
     } else {
       const buf = await file.arrayBuffer();
       logoBytes = new Uint8Array(buf);
+      // userData에 로고를 저장해 경로를 영구화
+      try {
+        if (window.api?.saveLogoBytes) {
+          const savedPath = await window.api.saveLogoBytes({ name: file.name, bytes: logoBytes });
+          if (savedPath) {
+            currentLogoPath = savedPath;
+            localStorage.setItem(LOGO_PATH_KEY, savedPath);
+            if (logo) logo.title = savedPath;
+          }
+        }
+      } catch (e) {
+        console.warn('Preview - Failed to persist logo bytes:', e);
+      }
       console.log('Preview - Logo bytes length:', logoBytes.length);
     }
   } else {
@@ -835,12 +861,15 @@ if (btnPreview) {
       try {
         if (logo.files && logo.files[0]) {
           const file = logo.files[0];
-          if (window.api?.getFilePath) {
-            const realPath = await window.api.getFilePath(file);
-            if (realPath) {
-              currentLogoPath = realPath;
-              localStorage.setItem(LOGO_PATH_KEY, realPath);
-              logo.title = realPath;
+          // 저장 루틴: 바이트 저장 -> 경로 기록
+          const buf = await file.arrayBuffer();
+          const bytes = new Uint8Array(buf);
+          if (window.api?.saveLogoBytes) {
+            const savedPath = await window.api.saveLogoBytes({ name: file.name, bytes });
+            if (savedPath) {
+              currentLogoPath = savedPath;
+              localStorage.setItem(LOGO_PATH_KEY, savedPath);
+              logo.title = savedPath;
             }
           }
         }
