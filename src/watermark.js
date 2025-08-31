@@ -9,14 +9,14 @@ let ffmpegPath = null;
 let ffprobePath = null;
 try {
   ffmpegPath = require('ffmpeg-static');
-  console.log('FFmpeg path found:', ffmpegPath);
+  // console.log('FFmpeg path found:', ffmpegPath);
 } catch (e) {
   console.log('FFmpeg static not found:', e.message);
 }
 try {
   const ffprobeStatic = require('ffprobe-static');
   ffprobePath = ffprobeStatic.path;
-  console.log('FFprobe path found:', ffprobePath);
+  // console.log('FFprobe path found:', ffprobePath);
 } catch (e) {
   console.log('FFprobe static not found:', e.message);
 }
@@ -24,7 +24,7 @@ try {
 if (ffmpegPath) {
   try { 
     ffmpeg.setFfmpegPath(ffmpegPath); 
-    console.log('FFmpeg path set successfully');
+    // console.log('FFmpeg path set successfully');
   } catch (e) {
     console.log('Failed to set FFmpeg path:', e.message);
   }
@@ -32,7 +32,7 @@ if (ffmpegPath) {
 if (ffprobePath) {
   try { 
     ffmpeg.setFfprobePath(ffprobePath); 
-    console.log('FFprobe path set successfully');
+    // console.log('FFprobe path set successfully');
   } catch (e) {
     console.log('Failed to set FFprobe path:', e.message);
   }
@@ -66,7 +66,7 @@ async function convertHeicWithSips(inputPath) {
   const tempOutputPath = path.join(tempDir, tempFileName);
   
   try {
-    console.log('Converting HEIC with macOS sips:', inputPath);
+    // console.log('Converting HEIC with macOS sips:', inputPath);
     
     // sips로 HEIC → JPEG 변환
     const command = `sips -s format jpeg "${inputPath}" --out "${tempOutputPath}"`;
@@ -77,7 +77,7 @@ async function convertHeicWithSips(inputPath) {
       throw new Error('sips conversion failed - output file not created');
     }
     
-    console.log('sips conversion successful:', tempOutputPath);
+    // console.log('sips conversion successful:', tempOutputPath);
     return tempOutputPath;
   } catch (error) {
     // 실패 시 임시 파일 정리
@@ -96,10 +96,10 @@ function cleanupTempFile(filePath) {
   try {
     if (filePath && fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
-      console.log('Cleaned up temp file:', filePath);
+      // console.log('Cleaned up temp file:', filePath);
     }
   } catch (error) {
-    console.warn('Failed to cleanup temp file:', filePath, error.message);
+    // console.warn('Failed to cleanup temp file:', filePath, error.message);
   }
 }
 
@@ -179,7 +179,7 @@ async function computeRegionLuminance(baseSharp, left, top, width, height, baseW
     const b = region.channels?.[2]?.mean ?? 255;
     return luminanceFromRGB(r, g, b);
   } catch (e) {
-    console.warn('computeRegionLuminance error:', e);
+    // console.warn('computeRegionLuminance error:', e);
     return 128; // 중간 밝기 반환
   }
 }
@@ -716,7 +716,7 @@ async function processFolderImages(inDir, outDir, options, onProgress) {
       const fileName = path.basename(filePath);
       imagePositionsMap.set(filePath, position);
       imagePositionsMap.set(fileName, position);
-      console.log('Stored position for:', filePath, '→', position);
+      // console.log('Stored position for:', filePath, '→', position);
     });
   }
 
