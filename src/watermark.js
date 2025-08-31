@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const sharp = require('sharp');
 const os = require('os');
+const { execSync } = require('child_process');
 const ffmpeg = require('fluent-ffmpeg');
 let ffmpegPath = null;
 let ffprobePath = null;
@@ -37,12 +38,69 @@ if (ffprobePath) {
   }
 }
 
-const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp']); // extend if needed
+const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.tiff', '.tif', '.bmp', '.gif']); // 더 많은 형식 지원
 const VIDEO_EXT = new Set(['.mp4', '.mov', '.m4v', '.mkv', '.webm', '.avi']);
 
 // 안전 여백/치수 클램프
 function clamp(num, min, max) {
   return Math.max(min, Math.min(max, num));
+}
+
+// macOS sips를 이용한 HEIC 변환 함수
+async function convertHeicWithSips(inputPath) {
+  // macOS 환경 체크
+  if (process.platform !== 'darwin') {
+    throw new Error('sips is only available on macOS');
+  }
+  
+  try {
+    // sips 명령어 존재 확인
+    execSync('which sips', { stdio: 'ignore' });
+  } catch (error) {
+    throw new Error('sips command not found');
+  }
+  
+  // 임시 출력 파일 경로 생성
+  const tempDir = os.tmpdir();
+  const tempFileName = `heic_converted_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.jpg`;
+  const tempOutputPath = path.join(tempDir, tempFileName);
+  
+  try {
+    console.log('Converting HEIC with macOS sips:', inputPath);
+    
+    // sips로 HEIC → JPEG 변환
+    const command = `sips -s format jpeg "${inputPath}" --out "${tempOutputPath}"`;
+    execSync(command, { stdio: 'pipe' });
+    
+    // 변환된 파일이 존재하는지 확인
+    if (!fs.existsSync(tempOutputPath)) {
+      throw new Error('sips conversion failed - output file not created');
+    }
+    
+    console.log('sips conversion successful:', tempOutputPath);
+    return tempOutputPath;
+  } catch (error) {
+    // 실패 시 임시 파일 정리
+    try {
+      if (fs.existsSync(tempOutputPath)) {
+        fs.unlinkSync(tempOutputPath);
+      }
+    } catch (_) {}
+    
+    throw new Error(`sips conversion failed: ${error.message}`);
+  }
+}
+
+// 임시 파일 정리 함수
+function cleanupTempFile(filePath) {
+  try {
+    if (filePath && fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      console.log('Cleaned up temp file:', filePath);
+    }
+  } catch (error) {
+    console.warn('Failed to cleanup temp file:', filePath, error.message);
+  }
 }
 
 // 이미지 크기에 따라 일관된 텍스트 크기 계산
@@ -56,6 +114,18 @@ function effectiveFontSize(baseW, baseH, { fontSize, fontSizeMode }) {
     return clamp(Math.round(raw), 12, 256);
   } else {
     return clamp(Math.round(Number(fontSize) || 36), 12, 256);
+  }
+}
+
+// 로고 크기 계산 (텍스트와 동일한 로직)
+function effectiveLogoSize(baseW, baseH, { logoSize, logoSizeMode }) {
+  const shortEdge = Math.max(1, Math.min(baseW || 0, baseH || 0));
+  if ((logoSizeMode || 'percent') === 'percent') {
+    const pct = Number(logoSize);
+    const raw = (isFinite(pct) ? pct : 15) / 100 * shortEdge;
+    return clamp(Math.round(raw), 10, Math.min(baseW, baseH) * 0.8); // 최대 이미지 크기의 80%
+  } else {
+    return clamp(Math.round(Number(logoSize) || 150), 10, Math.min(baseW, baseH) * 0.8);
   }
 }
 
@@ -184,8 +254,33 @@ function makeTextSVG(text, fontSize, opacity, maxWidthPx, textColor, fontFamily,
 
 // Uint8Array/Buffer 정규화
 function normalizeBuffer(bytes) {
-  if (!bytes) return null;
-  return Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+  if (!bytes) {
+    console.log('normalizeBuffer: No bytes provided');
+    return null;
+  }
+  
+  try {
+    if (Buffer.isBuffer(bytes)) {
+      console.log('normalizeBuffer: Input is already a Buffer, size:', bytes.length);
+      return bytes;
+    }
+    
+    if (bytes instanceof Uint8Array) {
+      console.log('normalizeBuffer: Converting Uint8Array to Buffer, size:', bytes.length);
+      return Buffer.from(bytes);
+    }
+    
+    if (ArrayBuffer.isView(bytes) || bytes instanceof ArrayBuffer) {
+      console.log('normalizeBuffer: Converting ArrayBuffer/TypedArray to Buffer');
+      return Buffer.from(bytes);
+    }
+    
+    console.log('normalizeBuffer: Unknown buffer type, attempting conversion');
+    return Buffer.from(bytes);
+  } catch (error) {
+    console.error('normalizeBuffer: Error converting bytes to Buffer:', error);
+    return null;
+  }
 }
 
 // 오버레이 버퍼를 "박스(width,height)" 안으로 안전 축소
@@ -273,19 +368,112 @@ function computeLeftTop(baseW, baseH, overlayW, overlayH, position, margin, cust
 async function watermarkOne(inputPath, outputPath, opts) {
   const { text, fontSize, opacity, position, margin, maxWidth, logoBytes, textColor, fontFamily, shadowColor, shadowOffsetX, shadowOffsetY, shadowBlur, outlineColor, outlineWidth } = opts;
 
+  // 임시 파일 경로 변수를 함수 최상위에서 선언
+  let tempConvertedPath = null;
+  let meta = null;
+
   // 1) 베이스 생성 및 (옵션) 리사이즈
-  let probe = sharp(inputPath, { failOn: 'none' });
-  let meta = await probe.metadata();
+  let probe;
+  try {
+    // 파일명으로 macOS 메타데이터 파일 확인
+    const fileName = require('path').basename(inputPath);
+    if (fileName.startsWith('._')) {
+      throw new Error(`Skipping macOS metadata file: ${fileName}`);
+    }
+    
+    probe = sharp(inputPath, { failOn: 'none' });
+    meta = await probe.metadata();
+    
+    // HEIC/HEIF 파일인 경우 특별 처리
+    const ext = require('path').extname(inputPath).toLowerCase();
+    
+    if (ext === '.heic' || ext === '.heif') {
+      console.log('Processing HEIC/HEIF file:', inputPath);
+      console.log('Original metadata:', meta);
+      
+      if (meta && meta.width && meta.height) {
+        console.log('HEIC file has valid metadata, attempting conversion...');
+        
+        // macOS 환경에서 sips 우선 시도
+        if (process.platform === 'darwin') {
+          try {
+            console.log('Attempting HEIC conversion with macOS sips...');
+            tempConvertedPath = await convertHeicWithSips(inputPath);
+            
+            // 변환된 파일로 probe 재설정 (EXIF 회전 정보 적용)
+            probe = sharp(tempConvertedPath, { failOn: 'none' }).rotate();
+            meta = await probe.metadata();
+            console.log('sips conversion successful with auto-rotation, new metadata:', meta);
+          } catch (sipsError) {
+            console.log('sips conversion failed, trying Sharp fallback:', sipsError.message);
+            
+            // sips 실패 시 Sharp로 시도 (원본 메타데이터 사용)
+            const originalMeta = await sharp(inputPath, { failOn: 'none' }).metadata();
+            const isHEVC = originalMeta.compression === 'hevc';
+            if (isHEVC) {
+              throw new Error(`HEVC 압축 HEIC 파일 변환에 실패했습니다. 파일을 수동으로 JPEG로 변환 후 다시 시도해주세요. (파일: ${require('path').basename(inputPath)})`);
+            } else {
+              // 비HEVC 파일은 Sharp로 시도 (EXIF 회전 정보 적용)
+              try {
+                const convertedBuffer = await sharp(inputPath, { 
+                  failOn: 'none',
+                  unlimited: true,
+                  sequentialRead: true
+                }).rotate().jpeg({ quality: 95 }).toBuffer();
+                
+                probe = sharp(convertedBuffer, { failOn: 'none' });
+                meta = await probe.metadata();
+                console.log('Sharp fallback conversion successful with auto-rotation');
+              } catch (sharpError) {
+                throw new Error(`HEIC 파일 변환에 실패했습니다: ${sharpError.message}`);
+              }
+            }
+          }
+        } else {
+          // 비macOS 환경에서는 Sharp만 사용 (원본 메타데이터 사용)
+          const originalMeta = await sharp(inputPath, { failOn: 'none' }).metadata();
+          const isHEVC = originalMeta.compression === 'hevc';
+          if (isHEVC) {
+            throw new Error(`HEVC 압축 HEIC 파일은 macOS가 아닌 환경에서 지원되지 않습니다. 파일을 JPEG로 변환 후 다시 시도해주세요. (파일: ${require('path').basename(inputPath)})`);
+          } else {
+            try {
+              const convertedBuffer = await sharp(inputPath, { 
+                failOn: 'none',
+                unlimited: true,
+                sequentialRead: true
+              }).rotate().jpeg({ quality: 95 }).toBuffer();
+              
+              probe = sharp(convertedBuffer, { failOn: 'none' });
+              meta = await probe.metadata();
+              console.log('Sharp conversion successful with auto-rotation (non-macOS)');
+            } catch (sharpError) {
+              throw new Error(`HEIC 파일 변환에 실패했습니다: ${sharpError.message}`);
+            }
+          }
+        }
+      } else {
+        throw new Error(`Invalid HEIC file: ${require('path').basename(inputPath)}`);
+      }
+    }
+  } catch (error) {
+    // 에러 발생 시 임시 파일 정리
+    if (tempConvertedPath) {
+      cleanupTempFile(tempConvertedPath);
+    }
+    console.error('Error processing input file:', inputPath, error.message);
+    throw new Error(`Unsupported image format or corrupted file: ${require('path').basename(inputPath)}`);
+  }
+  
   let img;
   if (maxWidth && meta.width && meta.width > maxWidth) {
-    const resizedBuf = await sharp(inputPath, { failOn: 'none' })
+    const resizedBuf = await probe
       .resize({ width: maxWidth })
       .toBuffer();
     img = sharp(resizedBuf, { failOn: 'none' });
     meta = await img.metadata(); // 리사이즈 후 실제 메타
   } else {
-    img = sharp(inputPath, { failOn: 'none' });
-    // meta는 원본 메타 그대로 사용
+    img = probe;
+    // meta는 이미 위에서 가져온 메타 사용
   }
 
   // 2) 합성할 수 있는 최대 박스 계산 (여백 고려)
@@ -338,31 +526,158 @@ async function watermarkOne(inputPath, outputPath, opts) {
 
   // 4) 로고 PNG
   const logoBuf = normalizeBuffer(logoBytes);
+  console.log('Processing logo:', logoBuf ? 'Logo buffer exists' : 'No logo buffer');
   if (logoBuf) {
-    const safeLogo = await fitOverlayInside(logoBuf, boxW, boxH);
+    console.log('Logo buffer size:', logoBuf.length);
+    
+    // 로고 목표 크기 계산
+    const targetLogoSize = effectiveLogoSize(baseW, baseH, { logoSize: opts.logoSize, logoSizeMode: opts.logoSizeMode });
+    console.log('Target logo size:', targetLogoSize, 'px');
+    
+    // 로고를 PNG로 변환하고 크기 조정
+    const pngLogo = await sharp(logoBuf)
+      .png()
+      .resize({ width: targetLogoSize, height: targetLogoSize, fit: 'inside', withoutEnlargement: false })
+      .toBuffer();
+    
+    // 안전 박스 크기 체크 (이미 리사이즈했지만 추가 안전 처리)
+    const safeLogo = await fitOverlayInside(pngLogo, boxW, boxH);
     const lmeta = await sharp(safeLogo).metadata();
-    const { left: logoLeft, top: logoTop } = computeLeftTop(baseW, baseH, lmeta.width || 0, lmeta.height || 0, (position === 'auto' ? 'southeast' : (position || 'southeast')), m);
+    console.log('Logo metadata:', { width: lmeta.width, height: lmeta.height });
+    // 로고 위치 계산 - 텍스트와 겹치지 않도록 조정
+    let logoPosition = position;
+    if (logoPosition === 'auto') logoPosition = 'southeast';
+    
+    // 텍스트가 있는 경우 로고 위치를 조정
+    if (text && position !== 'custom') {
+      switch(logoPosition) {
+        case 'southeast':
+          logoPosition = 'southwest'; // 텍스트가 southeast에 있으면 로고는 southwest
+          break;
+        case 'southwest':
+          logoPosition = 'southeast';
+          break;
+        case 'northeast':
+          logoPosition = 'northwest';
+          break;
+        case 'northwest':
+          logoPosition = 'northeast';
+          break;
+        default:
+          logoPosition = 'northwest'; // center나 다른 경우
+      }
+      console.log('Logo position adjusted to avoid text overlap:', logoPosition);
+    }
+    
+    const { left: logoLeft, top: logoTop } = computeLeftTop(baseW, baseH, lmeta.width || 0, lmeta.height || 0, logoPosition, m);
+    console.log('Logo position:', { left: logoLeft, top: logoTop });
+    // 로고 불투명도 (텍스트 불투명도와 별도)
+    const logoOpacity = clamp(Number(opts.logoOpacity) || 0.8, 0, 1);
+    console.log('Logo opacity:', logoOpacity);
+    
     composites.push({
       input: safeLogo,
       left: logoLeft,
       top: logoTop,
       blend: 'over',
-      opacity: effOpacity,
+      opacity: logoOpacity,
     });
+    console.log('Logo composite added to list');
   }
 
   // 5) 저장 (오버레이 없으면 원본 그대로 저장)
+  const outputExt = require('path').extname(outputPath).toLowerCase();
+  console.log('Saving output file:', outputPath, 'format:', outputExt);
+  
   if (composites.length > 0) {
-    await img.composite(composites).toFile(outputPath);
+    // 출력 형식에 따라 품질 설정
+    let pipeline = img.composite(composites);
+    
+    if (outputExt === '.jpg' || outputExt === '.jpeg') {
+      pipeline = pipeline.jpeg({ quality: 95 });
+    } else if (outputExt === '.png') {
+      pipeline = pipeline.png({ quality: 95 });
+    } else if (outputExt === '.webp') {
+      pipeline = pipeline.webp({ quality: 95 });
+    } else if (outputExt === '.heic' || outputExt === '.heif') {
+      // HEIC 입력이었더라도 JPEG로 출력 (호환성 및 워터마크 지원)
+      const jpegPath = outputPath.replace(/\.heic?$/i, '.jpg');
+      console.log('Converting HEIC output to JPEG for better compatibility:', jpegPath);
+      pipeline = pipeline.jpeg({ quality: 95, mozjpeg: true });
+      await pipeline.toFile(jpegPath);
+      return;
+    } else if (outputExt === '.tiff' || outputExt === '.tif') {
+      pipeline = pipeline.tiff({ quality: 95 });
+    } else if (outputExt === '.bmp') {
+      // BMP는 품질 설정이 없음
+      pipeline = pipeline.png(); // BMP 대신 PNG로 저장 (더 효율적)
+      const pngPath = outputPath.replace(/\.bmp$/i, '.png');
+      console.log('Converting BMP output to PNG:', pngPath);
+      await pipeline.toFile(pngPath);
+      return;
+    } else if (outputExt === '.gif') {
+      // GIF는 정적 이미지로 변환
+      pipeline = pipeline.png();
+      const pngPath = outputPath.replace(/\.gif$/i, '.png');
+      console.log('Converting GIF output to PNG:', pngPath);
+      await pipeline.toFile(pngPath);
+      return;
+    }
+    
+    await pipeline.toFile(outputPath);
   } else {
-    await img.toFile(outputPath);
+    // 오버레이가 없는 경우도 형식 변환 적용
+    let pipeline = img;
+    
+    if (outputExt === '.jpg' || outputExt === '.jpeg') {
+      pipeline = pipeline.jpeg({ quality: 95 });
+    } else if (outputExt === '.png') {
+      pipeline = pipeline.png({ quality: 95 });
+    } else if (outputExt === '.webp') {
+      pipeline = pipeline.webp({ quality: 95 });
+    } else if (outputExt === '.heic' || outputExt === '.heif') {
+      const jpegPath = outputPath.replace(/\.heic?$/i, '.jpg');
+      console.log('Converting HEIC output to JPEG (no overlay):', jpegPath);
+      pipeline = pipeline.jpeg({ quality: 95, mozjpeg: true });
+      await pipeline.toFile(jpegPath);
+      return;
+    } else if (outputExt === '.tiff' || outputExt === '.tif') {
+      pipeline = pipeline.tiff({ quality: 95 });
+    } else if (outputExt === '.bmp') {
+      pipeline = pipeline.png();
+      const pngPath = outputPath.replace(/\.bmp$/i, '.png');
+      console.log('Converting BMP output to PNG (no overlay):', pngPath);
+      await pipeline.toFile(pngPath);
+      return;
+    } else if (outputExt === '.gif') {
+      pipeline = pipeline.png();
+      const pngPath = outputPath.replace(/\.gif$/i, '.png');
+      console.log('Converting GIF output to PNG (no overlay):', pngPath);
+      await pipeline.toFile(pngPath);
+      return;
+    }
+    
+    await pipeline.toFile(outputPath);
+  }
+  
+  // 처리 완료 후 임시 파일 정리
+  if (tempConvertedPath) {
+    cleanupTempFile(tempConvertedPath);
   }
 }
 
 // 폴더 배치 처리
 async function processFolderImages(inDir, outDir, options, onProgress) {
   const files = fs.readdirSync(inDir);
-  const images = files.filter(f => IMAGE_EXT.has(path.extname(f).toLowerCase()));
+  // macOS 숨김 파일 및 시스템 파일 필터링
+  const images = files.filter(f => {
+    // ._ 로 시작하는 macOS 메타데이터 파일 제외
+    if (f.startsWith('._')) return false;
+    // .DS_Store 등 시스템 파일 제외
+    if (f.startsWith('.DS_Store') || f.startsWith('.')) return false;
+    // 지원하는 이미지 확장자만 포함
+    return IMAGE_EXT.has(path.extname(f).toLowerCase());
+  });
   let current = 0, succeeded = 0, failed = 0;
 
   // 이미지별 위치 정보 맵 생성
@@ -419,12 +734,100 @@ async function processFolderImages(inDir, outDir, options, onProgress) {
 
 // ===== 프리뷰: 파일 저장 대신 PNG 버퍼 반환 =====
 async function generatePreviewBuffer(inputPath, options, previewWidth = 800) {
-  // 입력 메타 먼저 조회
-  const inputMeta = await sharp(inputPath, { failOn: 'none' }).metadata();
+  // 임시 파일 경로 변수를 함수 최상위에서 선언
+  let tempConvertedPath = null;
+  
+  // 입력 메타 먼저 조회 (HEIC 지원 포함)
+  let inputProbe;
+  try {
+    // 파일명으로 macOS 메타데이터 파일 확인
+    const fileName = require('path').basename(inputPath);
+    if (fileName.startsWith('._')) {
+      throw new Error(`Preview - Skipping macOS metadata file: ${fileName}`);
+    }
+    
+    inputProbe = sharp(inputPath, { failOn: 'none' });
+    const inputMeta = await inputProbe.metadata();
+    
+    // HEIC/HEIF 파일인 경우 JPEG로 변환
+    const ext = require('path').extname(inputPath).toLowerCase();
+    
+    if (ext === '.heic' || ext === '.heif') {
+      console.log('Preview - Processing HEIC/HEIF file:', inputPath);
+      console.log('Preview - Original metadata:', inputMeta);
+      
+      if (inputMeta && inputMeta.width && inputMeta.height) {
+        console.log('Preview - HEIC file has valid metadata, attempting conversion...');
+        
+        // macOS 환경에서 sips 우선 시도
+        if (process.platform === 'darwin') {
+          try {
+            console.log('Preview - Attempting HEIC conversion with macOS sips...');
+            tempConvertedPath = await convertHeicWithSips(inputPath);
+            
+            // 변환된 파일로 probe 재설정 (EXIF 회전 정보 적용)
+            inputProbe = sharp(tempConvertedPath, { failOn: 'none' }).rotate();
+            console.log('Preview - sips conversion successful with auto-rotation');
+          } catch (sipsError) {
+            console.log('Preview - sips conversion failed, trying Sharp fallback:', sipsError.message);
+            
+            // sips 실패 시 Sharp로 시도
+            const isHEVC = inputMeta.compression === 'hevc';
+            if (isHEVC) {
+              throw new Error(`HEVC 압축 HEIC 파일 변환에 실패했습니다. 파일을 수동으로 JPEG로 변환 후 다시 시도해주세요. (파일: ${fileName})`);
+            } else {
+              try {
+                const convertedBuffer = await sharp(inputPath, { 
+                  failOn: 'none',
+                  unlimited: true,
+                  sequentialRead: true
+                }).rotate().jpeg({ quality: 95 }).toBuffer();
+                
+                inputProbe = sharp(convertedBuffer, { failOn: 'none' });
+                console.log('Preview - Sharp fallback conversion successful with auto-rotation');
+              } catch (sharpError) {
+                throw new Error(`Preview - HEIC 파일 변환에 실패했습니다: ${sharpError.message}`);
+              }
+            }
+          }
+        } else {
+          // 비macOS 환경에서는 Sharp만 사용
+          const isHEVC = inputMeta.compression === 'hevc';
+          if (isHEVC) {
+            throw new Error(`HEVC 압축 HEIC 파일은 macOS가 아닌 환경에서 지원되지 않습니다. 파일을 JPEG로 변환 후 다시 시도해주세요. (파일: ${fileName})`);
+          } else {
+            try {
+              const convertedBuffer = await sharp(inputPath, { 
+                failOn: 'none',
+                unlimited: true,
+                sequentialRead: true
+              }).rotate().jpeg({ quality: 95 }).toBuffer();
+              
+              inputProbe = sharp(convertedBuffer, { failOn: 'none' });
+              console.log('Preview - Sharp conversion successful with auto-rotation (non-macOS)');
+            } catch (sharpError) {
+              throw new Error(`Preview - HEIC 파일 변환에 실패했습니다: ${sharpError.message}`);
+            }
+          }
+        }
+      } else {
+        throw new Error(`Preview - Invalid HEIC file: ${fileName}`);
+      }
+    }
+  } catch (error) {
+    // 에러 발생 시 임시 파일 정리
+    if (tempConvertedPath) {
+      cleanupTempFile(tempConvertedPath);
+    }
+    console.error('Preview - Error processing input file:', inputPath, error.message);
+    throw new Error(`Preview - Unsupported image format: ${require('path').basename(inputPath)}`);
+  }
+  
+  const inputMeta = await inputProbe.metadata();
   const targetW = inputMeta.width && inputMeta.width > previewWidth ? previewWidth : (inputMeta.width || previewWidth);
 
   // 프리뷰용으로 실제 리사이즈를 수행하여 새 베이스/메타 획득
-  const baseBuf = await sharp(inputPath, { failOn: 'none' })
+  const baseBuf = await inputProbe
     .resize({ width: targetW })
     .toBuffer();
   let base = sharp(baseBuf, { failOn: 'none' });
@@ -466,16 +869,67 @@ async function generatePreviewBuffer(inputPath, options, previewWidth = 800) {
   }
 
   const logoBuf = normalizeBuffer(logoBytes);
+  console.log('Preview - Processing logo:', logoBuf ? 'Logo buffer exists' : 'No logo buffer');
   if (logoBuf) {
-    const safeLogo = await fitOverlayInside(logoBuf, boxW, boxH);
+    console.log('Preview - Logo buffer size:', logoBuf.length);
+    
+    // 프리뷰용 로고 목표 크기 계산
+    const targetLogoSize = effectiveLogoSize(baseW, baseH, { logoSize: options.logoSize, logoSizeMode: options.logoSizeMode });
+    console.log('Preview - Target logo size:', targetLogoSize, 'px');
+    
+    // 프리뷰에서도 로고를 PNG로 변환하고 크기 조정
+    const pngLogo = await sharp(logoBuf)
+      .png()
+      .resize({ width: targetLogoSize, height: targetLogoSize, fit: 'inside', withoutEnlargement: false })
+      .toBuffer();
+    
+    const safeLogo = await fitOverlayInside(pngLogo, boxW, boxH);
     const lmeta = await sharp(safeLogo).metadata();
-    const pos2 = (position === 'auto' ? 'southeast' : (position || 'southeast'));
-    const { left: logoLeft, top: logoTop } = computeLeftTop(baseW, baseH, lmeta.width || 0, lmeta.height || 0, pos2, m);
-    composites.push({ input: safeLogo, left: logoLeft, top: logoTop, blend: 'over', opacity: effOpacity });
+    console.log('Preview - Logo metadata:', { width: lmeta.width, height: lmeta.height });
+    // 프리뷰에서도 로고 위치 계산 - 텍스트와 겹치지 않도록 조정
+    let logoPosition = position === 'auto' ? 'southeast' : (position || 'southeast');
+    
+    // 텍스트가 있는 경우 로고 위치를 조정
+    if (text && position !== 'custom') {
+      switch(logoPosition) {
+        case 'southeast':
+          logoPosition = 'southwest';
+          break;
+        case 'southwest':
+          logoPosition = 'southeast';
+          break;
+        case 'northeast':
+          logoPosition = 'northwest';
+          break;
+        case 'northwest':
+          logoPosition = 'northeast';
+          break;
+        default:
+          logoPosition = 'northwest';
+      }
+      console.log('Preview - Logo position adjusted to avoid text overlap:', logoPosition);
+    }
+    
+    const { left: logoLeft, top: logoTop } = computeLeftTop(baseW, baseH, lmeta.width || 0, lmeta.height || 0, logoPosition, m);
+    console.log('Preview - Logo position:', { left: logoLeft, top: logoTop });
+    
+    // 프리뷰용 로고 불투명도
+    const logoOpacity = clamp(Number(options.logoOpacity) || 0.8, 0, 1);
+    console.log('Preview - Logo opacity:', logoOpacity);
+    
+    composites.push({ input: safeLogo, left: logoLeft, top: logoTop, blend: 'over', opacity: logoOpacity });
+    console.log('Preview - Logo composite added to list');
   }
 
   const pipeline = composites.length > 0 ? base.composite(composites) : base;
-  return await pipeline.png().toBuffer();
+  const result = await pipeline.png().toBuffer();
+  
+  // 처리 완료 후 임시 파일 정리
+  if (tempConvertedPath) {
+    cleanupTempFile(tempConvertedPath);
+  }
+  
+  return result;
 }
 
 // 워터마크 위치와 크기 정보 반환 (미리보기용)
@@ -649,13 +1103,51 @@ async function processOneVideo(inputPath, outputPath, options) {
   // Logo overlay
   const logoBuf = normalizeBuffer(logoBytes);
   if (logoBuf) {
-    const safeLogo = await fitOverlayInside(logoBuf, boxW, boxH);
+    // 비디오용 로고 목표 크기 계산
+    const targetLogoSize = effectiveLogoSize(baseW, baseH, { logoSize: options.logoSize, logoSizeMode: options.logoSizeMode });
+    console.log('Video - Target logo size:', targetLogoSize, 'px');
+    
+    // 비디오에서도 로고를 PNG로 변환하고 크기 조정
+    const pngLogo = await sharp(logoBuf)
+      .png()
+      .resize({ width: targetLogoSize, height: targetLogoSize, fit: 'inside', withoutEnlargement: false })
+      .toBuffer();
+    
+    const safeLogo = await fitOverlayInside(pngLogo, boxW, boxH);
     const lmeta = await sharp(safeLogo).metadata();
-    let pos = position === 'auto' ? 'southeast' : position;
-    const { left, top } = computeLeftTop(baseW, baseH, lmeta.width || 0, lmeta.height || 0, pos, m);
+    // 비디오에서도 로고 위치 계산 - 텍스트와 겹치지 않도록 조정
+    let logoPosition = position === 'auto' ? 'southeast' : position;
+    
+    // 텍스트가 있는 경우 로고 위치를 조정
+    if (text && position !== 'custom') {
+      switch(logoPosition) {
+        case 'southeast':
+          logoPosition = 'southwest';
+          break;
+        case 'southwest':
+          logoPosition = 'southeast';
+          break;
+        case 'northeast':
+          logoPosition = 'northwest';
+          break;
+        case 'northwest':
+          logoPosition = 'northeast';
+          break;
+        default:
+          logoPosition = 'northwest';
+      }
+      console.log('Video - Logo position adjusted to avoid text overlap:', logoPosition);
+    }
+    
+    const { left, top } = computeLeftTop(baseW, baseH, lmeta.width || 0, lmeta.height || 0, logoPosition, m);
     const tmp = makeTempFilePath('wm_logo.png');
     await writeBufferToFile(safeLogo, tmp);
-    overlays.push({ path: tmp, x: left, y: top, applyAlpha: true, alpha: clamp(Number(options.opacity) || 0.35, 0, 1) });
+    
+    // 비디오용 로고 불투명도
+    const logoOpacity = clamp(Number(options.logoOpacity) || 0.8, 0, 1);
+    console.log('Video - Logo opacity:', logoOpacity);
+    
+    overlays.push({ path: tmp, x: left, y: top, applyAlpha: true, alpha: logoOpacity });
   }
 
   // Build ffmpeg command - 회전 메타데이터는 유지하되 실제 회전은 하지 않음
@@ -724,7 +1216,11 @@ async function processOneVideo(inputPath, outputPath, options) {
 
 async function processFolderVideos(inDir, outDir, options, onProgress) {
   const files = fs.readdirSync(inDir);
-  const videos = files.filter(f => VIDEO_EXT.has(path.extname(f).toLowerCase()));
+  // macOS 숨김 파일 및 시스템 파일 필터링
+  const videos = files.filter(f => {
+    if (f.startsWith('._') || f.startsWith('.DS_Store') || f.startsWith('.')) return false;
+    return VIDEO_EXT.has(path.extname(f).toLowerCase());
+  });
   let current = 0, succeeded = 0, failed = 0;
 
   // 동영상별 위치 정보 맵 (이미지와 동일한 규칙)

@@ -5,6 +5,8 @@ const btnChoose = document.getElementById('btnChoose');
 const folderPathEl = document.getElementById('folderPath');
 const btnRun = document.getElementById('btnRun');
 const btnPreview = document.getElementById('btnPreview'); // 있을 경우 동작, 없으면 무시
+
+
 const statusEl = document.getElementById('status');
 const bar = document.getElementById('bar');
 const logEl = document.getElementById('log');
@@ -29,6 +31,9 @@ const shadowBlur = document.getElementById('shadowBlur');
 const outlineColor = document.getElementById('outlineColor');
 const outlineWidth = document.getElementById('outlineWidth');
 const logo = document.getElementById('logo');
+const logoSizeMode = document.getElementById('logoSizeMode');
+const logoSize = document.getElementById('logoSize');
+const logoOpacity = document.getElementById('logoOpacity');
 
 
 
@@ -56,6 +61,9 @@ function getCurrentOptionsSnapshot() {
     shadowBlur: (Number.isFinite(Number(shadowBlur?.value)) ? Number(shadowBlur?.value) : 0),
     outlineColor: (outlineColor?.value || '#000000'),
     outlineWidth: (Number.isFinite(Number(outlineWidth?.value)) ? Number(outlineWidth?.value) : 0),
+    logoSizeMode: (logoSizeMode?.value || 'percent'),
+    logoSize: Number(logoSize?.value) || 15,
+    logoOpacity: Math.max(0, Math.min(1, Number(logoOpacity?.value) || 0.8)),
     // logo 파일은 보안상 경로/값 저장 X (브라우저가 file input 복원을 금지)
   };
 }
@@ -70,6 +78,17 @@ function applyOptionsToUI(opts) {
   if (Number.isFinite(opts.opacity)) opacity.value = String(opts.opacity);
 // Helper to toggle font size mode visibility
 function updateFontSizeModeVisibility() {
+  const fontSizeMode = document.getElementById('fontSizeMode');
+  const rowFontSizePx = document.getElementById('rowFontSizePx');
+  
+  if (fontSizeMode && rowFontSizePx) {
+    // percent 모드일 때는 숨기고, absolute 모드일 때는 보이기
+    if (fontSizeMode.value === 'percent') {
+      rowFontSizePx.style.display = 'none';
+    } else {
+      rowFontSizePx.style.display = 'flex';
+    }
+  }
 }
   if (typeof opts.position === 'string') position.value = opts.position;
   if (Number.isFinite(opts.margin)) margin.value = String(opts.margin);
@@ -80,6 +99,9 @@ function updateFontSizeModeVisibility() {
   if (Number.isFinite(opts.shadowBlur) && shadowBlur) shadowBlur.value = String(opts.shadowBlur);
   if (typeof opts.outlineColor === 'string' && outlineColor) outlineColor.value = opts.outlineColor;
   if (Number.isFinite(opts.outlineWidth) && outlineWidth) outlineWidth.value = String(opts.outlineWidth);
+  if (typeof opts.logoSizeMode === 'string' && logoSizeMode) logoSizeMode.value = opts.logoSizeMode;
+  if (Number.isFinite(opts.logoSize) && logoSize) logoSize.value = String(opts.logoSize);
+  if (Number.isFinite(opts.logoOpacity) && logoOpacity) logoOpacity.value = String(opts.logoOpacity);
 }
 
 function saveOptions() {
@@ -133,14 +155,20 @@ window.api.onProgress((data) => {
 });
 
 // ===== Folder choose =====
-btnChoose.addEventListener('click', async () => {
-  const folder = await window.api.chooseFolder();
-  if (folder) {
-    chosenFolder = folder;
-    folderPathEl.textContent = folder;
-    saveLastFolder(folder);
-  }
-});
+if (btnChoose) {
+  btnChoose.addEventListener('click', async () => {
+    try {
+      const folder = await window.api.chooseFolder();
+      if (folder) {
+        chosenFolder = folder;
+        folderPathEl.textContent = folder;
+        saveLastFolder(folder);
+      }
+    } catch (error) {
+      console.error('Choose 버튼 오류:', error);
+    }
+  });
+}
 
 // ===== Build options for IPC (includes reading logo bytes) =====
 async function buildOptionsForIPC() {
@@ -149,8 +177,28 @@ async function buildOptionsForIPC() {
 
   let logoBytes = null;
   if (logo.files && logo.files[0]) {
-    const buf = await logo.files[0].arrayBuffer();
+    const file = logo.files[0];
+    console.log('Logo file selected:', file.name, 'size:', file.size, 'type:', file.type);
+    
+    // 파일 형식 검증
+    if (!file.type.startsWith('image/')) {
+      console.error('Invalid file type for logo:', file.type);
+      throw new Error('로고 파일은 이미지 파일이어야 합니다.');
+    }
+    
+    const buf = await file.arrayBuffer();
     logoBytes = new Uint8Array(buf); // structured clone OK
+    console.log('Logo bytes length:', logoBytes.length);
+    
+    // 첫 몇 바이트 확인 (PNG 매직 넘버 체크)
+    if (logoBytes.length >= 8) {
+      const pngSignature = Array.from(logoBytes.slice(0, 8));
+      const isPNG = pngSignature[0] === 0x89 && pngSignature[1] === 0x50 && 
+                   pngSignature[2] === 0x4E && pngSignature[3] === 0x47;
+      console.log('PNG signature check:', isPNG ? 'Valid PNG' : 'Not PNG format');
+    }
+  } else {
+    console.log('No logo file selected');
   }
   const snap = getCurrentOptionsSnapshot();
   
@@ -202,8 +250,20 @@ async function readOptionsForPreview(filePath = null) {
 
   let logoBytes = null;
   if (logo.files && logo.files[0]) {
-    const buf = await logo.files[0].arrayBuffer();
-    logoBytes = new Uint8Array(buf);
+    const file = logo.files[0];
+    console.log('Preview - Logo file selected:', file.name, 'size:', file.size, 'type:', file.type);
+    
+    // 파일 형식 검증
+    if (!file.type.startsWith('image/')) {
+      console.error('Preview - Invalid file type for logo:', file.type);
+      // 프리뷰에서는 에러를 던지지 않고 경고만 출력
+    } else {
+      const buf = await file.arrayBuffer();
+      logoBytes = new Uint8Array(buf);
+      console.log('Preview - Logo bytes length:', logoBytes.length);
+    }
+  } else {
+    console.log('Preview - No logo file selected');
   }
   const snap = getCurrentOptionsSnapshot();
   
@@ -229,17 +289,24 @@ async function readOptionsForPreview(filePath = null) {
 // 각 이미지의 개별 위치 설정을 저장
 let imagePositions = new Map();
 
-function renderInteractivePreviews(dataUrls, filePaths, originalImages) {
+async function renderInteractivePreviews(dataUrls, filePaths, originalImages) {
   if (!previewGrid) return;
   previewGrid.innerHTML = '';
   
-  dataUrls.forEach((url, i) => {
+  for (let i = 0; i < dataUrls.length; i++) {
+    const url = dataUrls[i];
     const filePath = filePaths[i];
     const fileName = filePath.split('/').pop();
     
     // Initialize position for this image if not exists
     if (!imagePositions.has(filePath)) {
-      const initialPosition = { type: position.value || 'southeast' };
+      // 현재 UI 상태를 모두 반영한 초기 위치 설정
+      const currentOptions = getCurrentOptionsSnapshot();
+      const initialPosition = { 
+        type: currentOptions.position || 'southeast',
+        // 추가 옵션들도 포함 (API 호출 시 필요)
+        ...currentOptions
+      };
       imagePositions.set(filePath, initialPosition);
     }
 
@@ -289,13 +356,21 @@ function renderInteractivePreviews(dataUrls, filePaths, originalImages) {
     previewGrid.appendChild(card);
 
     // 이미지 로드 후 워터마크 위치/크기 설정 (메인 로직과 동일 계산값 사용)
-    img.onload = async () => {
+    const setupOverlay = async () => {
       await setupWatermarkOverlay(overlay, img, filePath, i);
     };
-  });
+    
+    if (img.complete && img.naturalWidth > 0) {
+      // 이미지가 이미 로드된 경우
+      await setupOverlay();
+    } else {
+      // 이미지 로드 대기
+      img.onload = setupOverlay;
+    }
+  }
 }
 
-// 실제 워터마크 크기를 정확히 계산하는 함수
+// 실제 워터마크 크기를 정확히 계산하는 함수 (텍스트 + 로고 모두 고려)
 async function calculateActualWatermarkSize(img, filePath) {
   try {
     const opts = await readOptionsForPreview(filePath);
@@ -307,25 +382,54 @@ async function calculateActualWatermarkSize(img, filePath) {
         const previewScale = imgRect.width / originalImg.width;
 
         const shortEdge = Math.min(originalImg.width, originalImg.height);
-        const mode = (opts.fontSizeMode || 'percent');
-        let effFont = 36;
-        if (mode === 'percent') {
-          const pct = Number(opts.fontSize) || 5;
-          effFont = Math.max(12, Math.min(256, Math.round(shortEdge * (pct / 100))));
-        } else {
-          effFont = Math.max(12, Math.min(256, Math.round(Number(opts.fontSize) || 36)));
-        }
+        
+        let totalWidth = 0;
+        let totalHeight = 0;
+        
+        // 텍스트 워터마크 크기 계산
+        if (opts.text) {
+          const mode = (opts.fontSizeMode || 'percent');
+          let effFont = 36;
+          if (mode === 'percent') {
+            const pct = Number(opts.fontSize) || 5;
+            effFont = Math.max(12, Math.min(256, Math.round(shortEdge * (pct / 100))));
+          } else {
+            effFont = Math.max(12, Math.min(256, Math.round(Number(opts.fontSize) || 36)));
+          }
 
-        // 스케일링된 폰트로 텍스트 크기 측정
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        const text = opts.text || '';
-        ctx.font = `${effFont}px ${opts.fontFamily || 'Arial'}`;
-        const textMetrics = ctx.measureText(text);
-        const actualWidth = textMetrics.width * previewScale;
-        // makeTextSVG에서 svgH = scaledFontSize * 1.4 를 사용하므로 동일 계수로 맞춤
-        const actualHeight = effFont * previewScale * 1.4;
-        resolve({ width: actualWidth, height: actualHeight, scale: previewScale });
+          // 스케일링된 폰트로 텍스트 크기 측정
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          ctx.font = `${effFont}px ${opts.fontFamily || 'Arial'}`;
+          const textMetrics = ctx.measureText(opts.text);
+          const textWidth = textMetrics.width * previewScale;
+          const textHeight = effFont * previewScale * 1.4;
+          
+          totalWidth = Math.max(totalWidth, textWidth);
+          totalHeight = Math.max(totalHeight, textHeight);
+        }
+        
+        // 로고 워터마크 크기 계산 (로고가 있을 때)
+        if (opts.logoBytes && opts.logoBytes.length > 0) {
+          const logoMode = (opts.logoSizeMode || 'percent');
+          let effLogoSize = 150;
+          if (logoMode === 'percent') {
+            const pct = Number(opts.logoSize) || 15;
+            effLogoSize = Math.max(10, Math.min(Math.min(originalImg.width, originalImg.height) * 0.8, Math.round(shortEdge * (pct / 100))));
+          } else {
+            effLogoSize = Math.max(10, Math.min(Math.min(originalImg.width, originalImg.height) * 0.8, Math.round(Number(opts.logoSize) || 150)));
+          }
+          
+          const logoSize = effLogoSize * previewScale;
+          totalWidth = Math.max(totalWidth, logoSize);
+          totalHeight = Math.max(totalHeight, logoSize);
+        }
+        
+        resolve({ 
+          width: totalWidth || 100, 
+          height: totalHeight || 30, 
+          scale: previewScale 
+        });
       };
       originalImg.src = img.src;
     });
@@ -335,17 +439,16 @@ async function calculateActualWatermarkSize(img, filePath) {
     const text = document.getElementById('wmText')?.value || '';
     const fontFamily = document.getElementById('fontFamily')?.value || 'Arial';
     const imgRect = img.getBoundingClientRect();
-    // 기본 이미지 크기를 추정 (예: 800px 기준)
     const estimatedOriginalWidth = 800;
-    const fontScale = estimatedOriginalWidth / 800; // 1.0
+    const fontScale = estimatedOriginalWidth / 800;
     const scaledFontSize = fontSize * fontScale;
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     ctx.font = `${scaledFontSize}px ${fontFamily}`;
     const textMetrics = ctx.measureText(text);
     return {
-      width: textMetrics.width,
-      height: scaledFontSize * 1.2,
+      width: textMetrics.width || 100,
+      height: scaledFontSize * 1.2 || 30,
       scale: 1
     };
   }
@@ -354,12 +457,18 @@ async function calculateActualWatermarkSize(img, filePath) {
 async function setupWatermarkOverlay(overlay, img, filePath, imageIndex) {
   const imgRect = img.getBoundingClientRect();
   
+  console.log('Setting up watermark overlay for:', filePath);
+  console.log('Image rect:', imgRect);
+  console.log('Current imagePositions for this file:', imagePositions.get(filePath));
+  
   // 메인과 동일 로직으로 계산된 정확한 프리뷰 위치/크기 시도 (이미지/동영상 모두)
   let overlayWidth, overlayHeight;
   try {
     if (window.api?.getWatermarkPosition) {
       const opts = await readOptionsForPreview(filePath);
+      console.log('Options sent to API:', opts);
       const info = await window.api.getWatermarkPosition({ filePath, options: opts });
+      console.log('API response:', info);
       if (info && typeof info.left === 'number') {
         // 프리뷰 버퍼의 크기(info.imageWidth/Height) → 실제 표시 크기(imgRect)에 맞게 스케일링
         const scaleX = imgRect.width / (info.imageWidth || img.naturalWidth || 1);
@@ -610,7 +719,7 @@ if (btnPreview) {
         previews.push(dataUrl);
       }
 
-      renderInteractivePreviews(previews, allFiles, allFiles);
+      await renderInteractivePreviews(previews, allFiles, allFiles);
       const imageCount = (fileList.images || []).length;
       const videoCount = (fileList.videos || []).length;
       statusEl.textContent = `🎯 Interactive preview ready (${imageCount} images, ${videoCount} videos). Drag watermarks to adjust positions.`;
@@ -648,7 +757,7 @@ if (btnPreview) {
   }
 
   // 3) 입력 변경 시 자동 저장 (디바운스 없이 단순 처리)
-  [wmText, fontSize, textColor, fontFamily, opacity, position, margin, maxWidth, shadowColor, shadowOffsetX, shadowOffsetY, shadowBlur, outlineColor, outlineWidth].forEach(el => {
+  [wmText, fontSize, fontSizeMode, textColor, fontFamily, opacity, position, margin, maxWidth, shadowColor, shadowOffsetX, shadowOffsetY, shadowBlur, outlineColor, outlineWidth, logoSizeMode, logoSize, logoOpacity].forEach(el => {
     if (!el) return;
     const ev = el.tagName === 'SELECT' ? 'change' : 'input';
     el.addEventListener(ev, saveOptions);

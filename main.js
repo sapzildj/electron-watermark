@@ -35,11 +35,20 @@ app.on('window-all-closed', () => {
 
 // IPC: choose folder
 ipcMain.handle('choose-folder', async () => {
-  const result = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openDirectory']
-  });
-  if (result.canceled || !result.filePaths?.[0]) return null;
-  return result.filePaths[0];
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory'],
+      title: 'Choose Target Folder'
+    });
+    
+    if (result.canceled || !result.filePaths?.[0]) {
+      return null;
+    }
+    return result.filePaths[0];
+  } catch (error) {
+    console.error('Error choosing folder:', error);
+    return null;
+  }
 });
 
 // IPC: process images
@@ -80,12 +89,20 @@ ipcMain.handle('process-videos', async (_evt, payload) => {
 
 
 ipcMain.handle('list-images', async (_evt, folder) => {
-  const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp']);
+  const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.tiff', '.tif', '.bmp', '.gif']);
   const VIDEO_EXT = new Set(['.mp4', '.mov', '.m4v', '.mkv', '.webm', '.avi']);
   
   const files = fs.readdirSync(folder);
-  const images = files.filter(f => IMAGE_EXT.has(path.extname(f).toLowerCase())).map(f => path.join(folder, f));
-  const videos = files.filter(f => VIDEO_EXT.has(path.extname(f).toLowerCase())).map(f => path.join(folder, f));
+  // macOS 숨김 파일 및 시스템 파일 필터링
+  const images = files.filter(f => {
+    if (f.startsWith('._') || f.startsWith('.DS_Store') || f.startsWith('.')) return false;
+    return IMAGE_EXT.has(path.extname(f).toLowerCase());
+  }).map(f => path.join(folder, f));
+  
+  const videos = files.filter(f => {
+    if (f.startsWith('._') || f.startsWith('.DS_Store') || f.startsWith('.')) return false;
+    return VIDEO_EXT.has(path.extname(f).toLowerCase());
+  }).map(f => path.join(folder, f));
   
   return { images, videos };
 });
@@ -93,7 +110,7 @@ ipcMain.handle('list-images', async (_evt, folder) => {
 ipcMain.handle('preview-image', async (_evt, payload) => {
   const { filePath, options } = payload;
   const ext = path.extname(filePath).toLowerCase();
-  const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp']);
+  const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.tiff', '.tif', '.bmp', '.gif']);
   const VIDEO_EXT = new Set(['.mp4', '.mov', '.m4v', '.mkv', '.webm', '.avi']);
   
   let buf;
@@ -112,7 +129,7 @@ ipcMain.handle('preview-image', async (_evt, payload) => {
 ipcMain.handle('get-watermark-position', async (_evt, payload) => {
   const { filePath, options } = payload;
   const ext = path.extname(filePath).toLowerCase();
-  const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp']);
+  const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.tiff', '.tif', '.bmp', '.gif']);
   const VIDEO_EXT = new Set(['.mp4', '.mov', '.m4v', '.mkv', '.webm', '.avi']);
   if (IMAGE_EXT.has(ext)) {
     const { getWatermarkPosition } = require('./src/watermark');

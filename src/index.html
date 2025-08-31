@@ -43,7 +43,7 @@
 
     <div class="grid">
       <div>
-        <h3>Watermark options</h3>
+        <h3>📝 Text Watermark</h3>
         <div class="row"><label>Text</label><input id="wmText" type="text" placeholder="e.g. © My Brand 2025" /></div>
         <div class="row">
           <label>Font Size Mode</label>
@@ -57,14 +57,34 @@
         <div class="row"><label>Font</label>
           <input id="fontFamily" type="text" list="fontList" placeholder="-apple-system, Segoe UI, Roboto, Arial, sans-serif" />
           <datalist id="fontList"></datalist>
-          <select id="fontFamilySelect" size="8" style="max-width: 260px; height: 160px;">
+          <select id="fontFamilySelect" size="6" style="max-width: 260px; height: 120px;">
             <option value="">— System Fonts —</option>
           </select>
           <div id="fontPreview" style="min-width:220px; border:1px solid #e5e7eb; border-radius:8px; padding:10px; margin-left:8px; background:#fff; color:#111;">
             Aa 가나다 ABC 123
           </div>
         </div>
-        <div class="row"><label>Opacity (0-1)</label><input id="opacity" type="number" step="0.05" value="0.35" min="0" max="1" /></div>
+        <div class="row"><label>Shadow Color</label><input id="shadowColor" type="color" value="#000000" /></div>
+        <div class="row"><label>Shadow Offset X</label><input id="shadowOffsetX" type="number" value="2" /></div>
+        <div class="row"><label>Shadow Offset Y</label><input id="shadowOffsetY" type="number" value="2" /></div>
+        <div class="row"><label>Shadow Blur</label><input id="shadowBlur" type="number" value="0" min="0" max="20" /></div>
+        <div class="row"><label>Outline Color</label><input id="outlineColor" type="color" value="#000000" /></div>
+        <div class="row"><label>Outline Width</label><input id="outlineWidth" type="number" value="0" min="0" max="10" /></div>
+        
+        <h3 style="margin-top: 24px;">🖼️ Image Watermark</h3>
+        <div class="row"><label>Logo Image</label><input id="logo" type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/heic,image/heif,image/tiff,image/bmp,image/gif" /></div>
+        <div class="row">
+          <label>Logo Size Mode</label>
+          <select id="logoSizeMode">
+            <option value="percent" selected>Relative (% of short edge)</option>
+            <option value="absolute">Absolute (px)</option>
+          </select>
+        </div>
+        <div class="row"><label>Logo Size</label><input id="logoSize" type="number" value="15" min="1" max="100" /></div>
+        <div class="row"><label>Logo Opacity (0-1)</label><input id="logoOpacity" type="number" step="0.05" value="0.8" min="0" max="1" /></div>
+        
+        <h3 style="margin-top: 24px;">⚙️ Common Settings</h3>
+        <div class="row"><label>Text Opacity (0-1)</label><input id="opacity" type="number" step="0.05" value="0.35" min="0" max="1" /></div>
         <div class="row"><label>Position</label>
           <select id="position">
             <option value="southeast">Bottom-Right</option>
@@ -83,18 +103,12 @@
         </div>
         <div class="row"><label>Margin (px)</label><input id="margin" type="number" value="24" min="0" max="200" /></div>
         <div class="row"><label>Max Width (px)</label><input id="maxWidth" type="number" value="0" /></div>
-        <div class="row"><label>Shadow Color</label><input id="shadowColor" type="color" value="#000000" /></div>
-        <div class="row"><label>Shadow Offset X</label><input id="shadowOffsetX" type="number" value="2" /></div>
-        <div class="row"><label>Shadow Offset Y</label><input id="shadowOffsetY" type="number" value="2" /></div>
-        <div class="row"><label>Shadow Blur</label><input id="shadowBlur" type="number" value="0" min="0" max="20" /></div>
-        <div class="row"><label>Outline Color</label><input id="outlineColor" type="color" value="#000000" /></div>
-        <div class="row"><label>Outline Width</label><input id="outlineWidth" type="number" value="0" min="0" max="10" /></div>
-        <div class="row"><label>Logo (PNG)</label><input id="logo" type="file" accept="image/png" /></div>
       </div>
 
       <div>
         <h3>Hints</h3>
         <p class="muted">Tip: Keep opacity between 0.25–0.45 for subtle yet visible marks. Use margins to avoid edges.</p>
+        <p class="muted"><strong>HEIC 파일:</strong> macOS에서는 모든 HEIC 파일을 자동 변환합니다. 다른 OS에서는 일부 HEVC 압축 HEIC가 지원되지 않을 수 있습니다.</p>
       </div>
     </div>
 
