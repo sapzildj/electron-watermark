@@ -120,6 +120,7 @@ function effectiveFontSize(baseW, baseH, { fontSize, fontSizeMode }) {
 // 로고 크기 계산 (텍스트와 동일한 로직)
 function effectiveLogoSize(baseW, baseH, { logoSize, logoSizeMode }) {
   const shortEdge = Math.max(1, Math.min(baseW || 0, baseH || 0));
+  
   if ((logoSizeMode || 'percent') === 'percent') {
     const pct = Number(logoSize);
     const raw = (isFinite(pct) ? pct : 15) / 100 * shortEdge;
@@ -530,8 +531,10 @@ async function watermarkOne(inputPath, outputPath, opts) {
   if (logoBuf) {
     console.log('Logo buffer size:', logoBuf.length);
     
-    // 로고 목표 크기 계산
-    const targetLogoSize = effectiveLogoSize(baseW, baseH, { logoSize: opts.logoSize, logoSizeMode: opts.logoSizeMode });
+    // 로고 목표 크기 계산 - 원본 이미지 크기 기준으로 계산
+    const originalW = meta.width || 0;
+    const originalH = meta.height || 0;
+    const targetLogoSize = effectiveLogoSize(originalW, originalH, { logoSize: opts.logoSize, logoSizeMode: opts.logoSizeMode });
     console.log('Target logo size:', targetLogoSize, 'px');
     
     // 로고를 PNG로 변환하고 크기 조정
@@ -873,8 +876,10 @@ async function generatePreviewBuffer(inputPath, options, previewWidth = 800) {
   if (logoBuf) {
     console.log('Preview - Logo buffer size:', logoBuf.length);
     
-    // 프리뷰용 로고 목표 크기 계산
-    const targetLogoSize = effectiveLogoSize(baseW, baseH, { logoSize: options.logoSize, logoSizeMode: options.logoSizeMode });
+    // 프리뷰용 로고 목표 크기 계산 - 원본 이미지 크기 기준으로 계산
+    const originalW = meta.width || 0;
+    const originalH = meta.height || 0;
+    const targetLogoSize = effectiveLogoSize(originalW, originalH, { logoSize: options.logoSize, logoSizeMode: options.logoSizeMode });
     console.log('Preview - Target logo size:', targetLogoSize, 'px');
     
     // 프리뷰에서도 로고를 PNG로 변환하고 크기 조정
@@ -935,27 +940,102 @@ async function generatePreviewBuffer(inputPath, options, previewWidth = 800) {
 // 워터마크 위치와 크기 정보 반환 (미리보기용)
 async function getWatermarkPosition(inputPath, options, previewWidth = 800) {
   const { maxWidth } = options;
+  let tempConvertedPath = null;
   
-  // 실제 처리와 동일한 리사이징 로직 사용
-  let probe = sharp(inputPath, { failOn: 'none' });
-  let inputMeta = await probe.metadata();
-  let img;
+  try {
+    // macOS 메타데이터 파일 필터링
+    const fileName = require('path').basename(inputPath);
+    if (fileName.startsWith('._') || fileName === '.DS_Store' || fileName.startsWith('.')) {
+      throw new Error(`Skipping macOS metadata file: ${fileName}`);
+    }
+    
+    // 실제 처리와 동일한 리사이징 로직 사용
+    let probe = sharp(inputPath, { failOn: 'none' });
+    let inputMeta = await probe.metadata();
+    
+    // HEIC/HEIF 파일인 경우 특별 처리
+    const ext = require('path').extname(inputPath).toLowerCase();
+    
+    if (ext === '.heic' || ext === '.heif') {
+      console.log('getWatermarkPosition - Processing HEIC/HEIF file:', inputPath);
+      
+      if (inputMeta && inputMeta.width && inputMeta.height) {
+        // macOS 환경에서 sips 우선 시도
+        if (process.platform === 'darwin') {
+          try {
+            console.log('getWatermarkPosition - Attempting HEIC conversion with macOS sips...');
+            tempConvertedPath = await convertHeicWithSips(inputPath);
+            
+            // 변환된 파일로 probe 재설정 (EXIF 회전 정보 적용)
+            probe = sharp(tempConvertedPath, { failOn: 'none' }).rotate();
+            inputMeta = await probe.metadata();
+            console.log('getWatermarkPosition - sips conversion successful with auto-rotation');
+          } catch (sipsError) {
+            console.log('getWatermarkPosition - sips conversion failed, trying Sharp fallback:', sipsError.message);
+            
+            // sips 실패 시 Sharp로 시도
+            const isHEVC = inputMeta.compression === 'hevc';
+            if (isHEVC) {
+              throw new Error(`HEVC 압축 HEIC 파일 변환에 실패했습니다. 파일을 수동으로 JPEG로 변환 후 다시 시도해주세요. (파일: ${fileName})`);
+            } else {
+              try {
+                const convertedBuffer = await sharp(inputPath, { 
+                  failOn: 'none',
+                  unlimited: true,
+                  sequentialRead: true
+                }).rotate().jpeg({ quality: 95 }).toBuffer();
+                
+                probe = sharp(convertedBuffer, { failOn: 'none' });
+                inputMeta = await probe.metadata();
+                console.log('getWatermarkPosition - Sharp fallback conversion successful with auto-rotation');
+              } catch (sharpError) {
+                throw new Error(`HEIC 파일 변환에 실패했습니다: ${sharpError.message}`);
+              }
+            }
+          }
+        } else {
+          // 비macOS 환경에서는 Sharp만 사용
+          const isHEVC = inputMeta.compression === 'hevc';
+          if (isHEVC) {
+            throw new Error(`HEVC 압축 HEIC 파일은 macOS가 아닌 환경에서 지원되지 않습니다. 파일을 JPEG로 변환 후 다시 시도해주세요. (파일: ${fileName})`);
+          } else {
+            try {
+              const convertedBuffer = await sharp(inputPath, { 
+                failOn: 'none',
+                unlimited: true,
+                sequentialRead: true
+              }).rotate().jpeg({ quality: 95 }).toBuffer();
+              
+              probe = sharp(convertedBuffer, { failOn: 'none' });
+              inputMeta = await probe.metadata();
+              console.log('getWatermarkPosition - Sharp conversion successful with auto-rotation (non-macOS)');
+            } catch (sharpError) {
+              throw new Error(`HEIC 파일 변환에 실패했습니다: ${sharpError.message}`);
+            }
+          }
+        }
+      } else {
+        throw new Error(`Invalid HEIC file: ${fileName}`);
+      }
+    }
+    
+    let img;
   
   if (maxWidth && inputMeta.width && inputMeta.width > maxWidth) {
     // 실제 처리에서 maxWidth로 리사이즈되는 경우
-    const resizedBuf = await sharp(inputPath, { failOn: 'none' })
+    const resizedBuf = await probe
       .resize({ width: maxWidth })
       .toBuffer();
     img = sharp(resizedBuf, { failOn: 'none' });
   } else if (inputMeta.width && inputMeta.width > previewWidth) {
     // 미리보기를 위해 previewWidth로 리사이즈
-    const resizedBuf = await sharp(inputPath, { failOn: 'none' })
+    const resizedBuf = await probe
       .resize({ width: previewWidth })
       .toBuffer();
     img = sharp(resizedBuf, { failOn: 'none' });
   } else {
-    // 원본 크기 사용
-    img = sharp(inputPath, { failOn: 'none' });
+    // 원본 크기 사용 (이미 변환된 probe 사용)
+    img = probe;
   }
   
   let meta = await img.metadata();
@@ -1012,6 +1092,19 @@ async function getWatermarkPosition(inputPath, options, previewWidth = 800) {
   }
 
   return watermarkInfo;
+  } catch (error) {
+    // 에러 발생 시 임시 파일 정리
+    if (tempConvertedPath) {
+      cleanupTempFile(tempConvertedPath);
+    }
+    console.error('Error in getWatermarkPosition:', inputPath, error.message);
+    throw error;
+  } finally {
+    // 정상 완료 시에도 임시 파일 정리
+    if (tempConvertedPath) {
+      cleanupTempFile(tempConvertedPath);
+    }
+  }
 }
 
 module.exports = { processFolderImages, generatePreviewBuffer, getWatermarkPosition };

@@ -11,6 +11,7 @@ const statusEl = document.getElementById('status');
 const bar = document.getElementById('bar');
 const logEl = document.getElementById('log');
 const previewGrid = document.getElementById('previewGrid'); // 있을 경우 동작, 없으면 무시
+const languageSelect = document.getElementById('languageSelect');
 
 const wmText = document.getElementById('wmText');
 const fontSize = document.getElementById('fontSize');
@@ -76,6 +77,21 @@ function applyOptionsToUI(opts) {
   if (typeof opts.textColor === 'string' && textColor) textColor.value = opts.textColor;
   if (typeof opts.fontFamily === 'string' && fontFamily) fontFamily.value = opts.fontFamily;
   if (Number.isFinite(opts.opacity)) opacity.value = String(opts.opacity);
+  if (typeof opts.position === 'string') position.value = opts.position;
+  if (Number.isFinite(opts.margin)) margin.value = String(opts.margin);
+  // Force maxWidth to 0 to prevent image scaling issues
+  maxWidth.value = "0";
+  if (typeof opts.shadowColor === 'string' && shadowColor) shadowColor.value = opts.shadowColor;
+  if (Number.isFinite(opts.shadowOffsetX) && shadowOffsetX) shadowOffsetX.value = String(opts.shadowOffsetX);
+  if (Number.isFinite(opts.shadowOffsetY) && shadowOffsetY) shadowOffsetY.value = String(opts.shadowOffsetY);
+  if (Number.isFinite(opts.shadowBlur) && shadowBlur) shadowBlur.value = String(opts.shadowBlur);
+  if (typeof opts.outlineColor === 'string' && outlineColor) outlineColor.value = opts.outlineColor;
+  if (Number.isFinite(opts.outlineWidth) && outlineWidth) outlineWidth.value = String(opts.outlineWidth);
+  if (typeof opts.logoSizeMode === 'string' && logoSizeMode) logoSizeMode.value = opts.logoSizeMode;
+  if (Number.isFinite(opts.logoSize) && logoSize) logoSize.value = String(opts.logoSize);
+  if (Number.isFinite(opts.logoOpacity) && logoOpacity) logoOpacity.value = String(opts.logoOpacity);
+}
+
 // Helper to toggle font size mode visibility
 function updateFontSizeModeVisibility() {
   const fontSizeMode = document.getElementById('fontSizeMode');
@@ -89,19 +105,6 @@ function updateFontSizeModeVisibility() {
       rowFontSizePx.style.display = 'flex';
     }
   }
-}
-  if (typeof opts.position === 'string') position.value = opts.position;
-  if (Number.isFinite(opts.margin)) margin.value = String(opts.margin);
-  if (Number.isFinite(opts.maxWidth)) maxWidth.value = String(opts.maxWidth);
-  if (typeof opts.shadowColor === 'string' && shadowColor) shadowColor.value = opts.shadowColor;
-  if (Number.isFinite(opts.shadowOffsetX) && shadowOffsetX) shadowOffsetX.value = String(opts.shadowOffsetX);
-  if (Number.isFinite(opts.shadowOffsetY) && shadowOffsetY) shadowOffsetY.value = String(opts.shadowOffsetY);
-  if (Number.isFinite(opts.shadowBlur) && shadowBlur) shadowBlur.value = String(opts.shadowBlur);
-  if (typeof opts.outlineColor === 'string' && outlineColor) outlineColor.value = opts.outlineColor;
-  if (Number.isFinite(opts.outlineWidth) && outlineWidth) outlineWidth.value = String(opts.outlineWidth);
-  if (typeof opts.logoSizeMode === 'string' && logoSizeMode) logoSizeMode.value = opts.logoSizeMode;
-  if (Number.isFinite(opts.logoSize) && logoSize) logoSize.value = String(opts.logoSize);
-  if (Number.isFinite(opts.logoOpacity) && logoOpacity) logoOpacity.value = String(opts.logoOpacity);
 }
 
 function saveOptions() {
@@ -827,3 +830,57 @@ if (btnPreview) {
     // 초기 가시성
     updateFontSizeModeVisibility();
   }
+
+// ===== INTERNATIONALIZATION =====
+// Initialize i18n when DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+  console.log('DOM loaded, checking i18n...'); // Debug log
+  console.log('window.i18n exists:', !!window.i18n); // Debug log
+  
+  // Wait a bit for all scripts to load
+  setTimeout(() => {
+    if (window.i18n) {
+      console.log('i18n system loaded successfully'); // Debug log
+      
+      // Language selector event listener
+      const langSelect = document.getElementById('languageSelect');
+      console.log('Language selector found:', !!langSelect); // Debug log
+      
+      if (langSelect) {
+        langSelect.addEventListener('change', (e) => {
+          console.log('Language changed to:', e.target.value); // Debug log
+          window.i18n.setLanguage(e.target.value);
+          localStorage.setItem('selectedLanguage', e.target.value);
+        });
+      }
+
+      // Load saved language or auto-detect
+      const savedLanguage = localStorage.getItem('selectedLanguage');
+      if (savedLanguage) {
+        console.log('Loading saved language:', savedLanguage); // Debug log
+        window.i18n.setLanguage(savedLanguage);
+        if (langSelect) {
+          langSelect.value = savedLanguage;
+        }
+      } else {
+        console.log('Auto-detecting language'); // Debug log
+        window.i18n.detectLanguage();
+        if (langSelect) {
+          langSelect.value = window.i18n.currentLanguage || 'en';
+        }
+      }
+
+      // Initialize tooltips
+      console.log('Initializing UI with language:', window.i18n.currentLanguage); // Debug log
+      window.i18n.updateUI();
+      
+      // Test tooltip functionality
+      const testElement = document.querySelector('[data-tooltip]');
+      if (testElement) {
+        console.log('Test element found:', testElement.tagName, 'title:', testElement.title);
+      }
+    } else {
+      console.error('i18n system not loaded!'); // Debug log
+    }
+  }, 100); // Wait 100ms for scripts to load
+});
