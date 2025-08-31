@@ -152,7 +152,9 @@ async function ensureLogoBytesIfNeeded(currentLogoBytes) {
     if (!buf) return null;
     currentLogoPath = savedPath;
     if (logo) logo.title = savedPath;
-    return new Uint8Array(buf.data ? buf.data : buf);
+    // Electron 26+: nodeIntegration off에서는 Buffer가 {type:'Buffer',data:[]} 형태로 직렬화되어 올 수 있음
+    const raw = (buf && buf.data && Array.isArray(buf.data)) ? Uint8Array.from(buf.data) : new Uint8Array(buf);
+    return raw;
   } catch (e) {
     console.warn('ensureLogoBytesIfNeeded error:', e);
     return null;

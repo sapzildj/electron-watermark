@@ -175,18 +175,23 @@ ipcMain.handle('read-file-as-buffer', async (_evt, filePath) => {
 ipcMain.handle('get-file-path', async (_evt, file) => {
   try {
     // Electron에서는 File 객체의 path 속성을 통해 실제 파일 경로를 얻을 수 있음
-    if (file.path) {
+    if (file && typeof file.path === 'string') {
       return file.path;
     } else {
       // path 속성이 없는 경우 (일부 브라우저 호환성 문제)
       // 임시로 복사 후 경로 반환 (더 안전한 방법)
       const tempDir = require('os').tmpdir();
-      const tempFileName = `temp_logo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}${require('path').extname(file.name)}`;
+      const safeExt = file && typeof file.name === 'string' ? require('path').extname(file.name) : '';
+      const tempFileName = `temp_logo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}${safeExt}`;
       const tempPath = require('path').join(tempDir, tempFileName);
 
       // 파일을 임시 경로로 복사
-      const buffer = Buffer.from(await file.arrayBuffer());
-      fs.writeFileSync(tempPath, buffer);
+      if (file && typeof file.arrayBuffer === 'function') {
+        const buffer = Buffer.from(await file.arrayBuffer());
+        fs.writeFileSync(tempPath, buffer);
+      } else {
+        throw new Error('Invalid file object: missing arrayBuffer');
+      }
 
       return tempPath;
     }

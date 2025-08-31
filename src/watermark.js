@@ -826,31 +826,10 @@ async function generatePreviewBuffer(inputPath, options, previewWidth = 800) {
             console.log('Preview - Attempting HEIC conversion with macOS sips...');
             tempConvertedPath = await convertHeicWithSips(inputPath);
             
-            // 변환된 파일로 probe 재설정 (sips가 이미 회전을 적용했으므로 추가 회전 없음)
-            inputProbe = sharp(tempConvertedPath, { failOn: 'none' });
+            // 변환된 파일을 안전하게 정규화: EXIF 기반 회전 적용 후 ORIENTATION=1로 리셋
+            inputProbe = sharp(tempConvertedPath, { failOn: 'none' }).rotate().withMetadata({ orientation: 1 });
             const previewMeta = await inputProbe.metadata();
-            
-            // HEIC 세로 이미지 처리: 원본이 세로(height > width)였는데 sips 변환 후 가로가 된 경우
-            const originalIsPortrait = inputMeta.height > inputMeta.width;
-            const convertedIsLandscape = previewMeta.width > previewMeta.height;
-            
-            if (originalIsPortrait && convertedIsLandscape) {
-              // sips가 세로 이미지를 가로로 회전시켰으므로, 원본 크기를 사용
-              console.log('Preview - HEIC portrait image detected, using original dimensions:', { 
-                original: `${inputMeta.width}x${inputMeta.height}`,
-                converted: `${previewMeta.width}x${previewMeta.height}`,
-                usingOriginal: `${inputMeta.width}x${inputMeta.height}`
-              });
-            } else if (previewMeta.orientation === 6) {
-              // orientation 6은 90도 시계방향 회전을 의미하므로, 원본 크기로 되돌림
-              const originalW = previewMeta.height;
-              const originalH = previewMeta.width;
-              previewMeta.width = originalW;
-              previewMeta.height = originalH;
-              console.log('Preview - Corrected metadata for orientation 6:', { width: previewMeta.width, height: previewMeta.height });
-            }
-            
-            console.log('Preview - sips conversion successful with auto-rotation');
+            console.log('Preview - sips conversion and normalize orientation done:', { width: previewMeta.width, height: previewMeta.height });
           } catch (sipsError) {
             console.log('Preview - sips conversion failed, trying Sharp fallback:', sipsError.message);
             
@@ -1046,31 +1025,10 @@ async function getWatermarkPosition(inputPath, options, previewWidth = 800) {
             console.log('getWatermarkPosition - Attempting HEIC conversion with macOS sips...');
             tempConvertedPath = await convertHeicWithSips(inputPath);
             
-            // 변환된 파일로 probe 재설정 (sips가 이미 회전을 적용했으므로 추가 회전 없음)
-            probe = sharp(tempConvertedPath, { failOn: 'none' });
+            // 변환된 파일을 안전하게 정규화
+            probe = sharp(tempConvertedPath, { failOn: 'none' }).rotate().withMetadata({ orientation: 1 });
             inputMeta = await probe.metadata();
-            
-            // HEIC 세로 이미지 처리: 원본이 세로(height > width)였는데 sips 변환 후 가로가 된 경우
-            const originalIsPortrait = originalMeta.height > originalMeta.width;
-            const convertedIsLandscape = inputMeta.width > inputMeta.height;
-            
-            if (originalIsPortrait && convertedIsLandscape) {
-              // sips가 세로 이미지를 가로로 회전시켰으므로, 원본 크기를 사용
-              console.log('getWatermarkPosition - HEIC portrait image detected, using original dimensions:', { 
-                original: `${originalMeta.width}x${originalMeta.height}`,
-                converted: `${inputMeta.width}x${inputMeta.height}`,
-                usingOriginal: `${originalMeta.width}x${originalMeta.height}`
-              });
-            } else if (inputMeta.orientation === 6) {
-              // orientation 6은 90도 시계방향 회전을 의미하므로, 원본 크기로 되돌림
-              const originalW = inputMeta.height;
-              const originalH = inputMeta.width;
-              inputMeta.width = originalW;
-              inputMeta.height = originalH;
-              console.log('getWatermarkPosition - Corrected metadata for orientation 6:', { width: inputMeta.width, height: inputMeta.height });
-            }
-            
-            console.log('getWatermarkPosition - sips conversion successful with auto-rotation');
+            console.log('getWatermarkPosition - sips conversion and normalize orientation done:', { width: inputMeta.width, height: inputMeta.height });
           } catch (sipsError) {
             console.log('getWatermarkPosition - sips conversion failed, trying Sharp fallback:', sipsError.message);
             
