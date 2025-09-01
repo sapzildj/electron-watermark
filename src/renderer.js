@@ -106,13 +106,38 @@ function applyOptionsToUI(opts) {
 function updateFontSizeModeVisibility() {
   const fontSizeMode = document.getElementById('fontSizeMode');
   const rowFontSizePx = document.getElementById('rowFontSizePx');
+  const fontSizeInput = document.getElementById('fontSize');
+  const fontSizeLabel = rowFontSizePx ? rowFontSizePx.querySelector('label') : null;
   
   if (fontSizeMode && rowFontSizePx) {
-    // percent 모드일 때는 숨기고, absolute 모드일 때는 보이기
-    if (fontSizeMode.value === 'percent') {
-      rowFontSizePx.style.display = 'none';
-    } else {
-      rowFontSizePx.style.display = 'flex';
+    // 두 모드 모두 입력 가능하도록 항상 표시
+    rowFontSizePx.style.display = 'flex';
+    if (fontSizeInput) {
+      if (fontSizeMode.value === 'percent') {
+        fontSizeInput.min = '1';
+        fontSizeInput.max = '100';
+        fontSizeInput.step = '1';
+        if (fontSizeLabel) {
+          try {
+            const base = window.i18n ? window.i18n.t('fontSize') : 'Font Size';
+            fontSizeLabel.textContent = `${base} (%)`;
+          } catch (_) {
+            fontSizeLabel.textContent = 'Font Size (%)';
+          }
+        }
+      } else {
+        fontSizeInput.min = '8';
+        fontSizeInput.max = '256';
+        fontSizeInput.step = '1';
+        if (fontSizeLabel) {
+          try {
+            const base = window.i18n ? window.i18n.t('fontSize') : 'Font Size';
+            fontSizeLabel.textContent = `${base} (px)`;
+          } catch (_) {
+            fontSizeLabel.textContent = 'Font Size (px)';
+          }
+        }
+      }
     }
   }
 }
@@ -251,6 +276,30 @@ async function buildOptionsForIPC() {
   logoBytes = await ensureLogoBytesIfNeeded(logoBytes);
   const snap = getCurrentOptionsSnapshot();
   
+  // 텍스트/이미지 워터마크 선택 로직 및 검증
+  const hasText = !!(snap.text && snap.text.trim().length > 0);
+  const logoSelectedNow = !!(logo && logo.files && logo.files[0]);
+  const hasLogoBytes = !!(logoBytes && logoBytes.length > 0);
+  let watermarkMode = null;
+  
+  if (logoSelectedNow) {
+    watermarkMode = 'image';
+  } else if (hasText) {
+    watermarkMode = 'text';
+  } else if (hasLogoBytes) {
+    // 이전 세션의 저장된 로고 경로가 있을 때만 이미지 모드 자동 선택
+    watermarkMode = 'image';
+  } else {
+    throw new Error('텍스트 또는 로고 이미지를 입력/선택하세요.');
+  }
+  
+  // 모드에 따라 옵션 정리: 서로 배타 적용
+  if (watermarkMode === 'text') {
+    logoBytes = null;
+  } else if (watermarkMode === 'image') {
+    snap.text = '';
+  }
+  
   // 개별 이미지 위치 정보 포함
   const imagePositionsArray = Array.from(imagePositions.entries()).map(([filePath, posData]) => {
     console.log('Sending position for:', filePath, '→', posData);
@@ -261,7 +310,7 @@ async function buildOptionsForIPC() {
   });
   
   console.log('Total image positions:', imagePositionsArray.length);
-  return { ...snap, logoBytes, imagePositions: imagePositionsArray };
+  return { ...snap, logoBytes, imagePositions: imagePositionsArray, watermarkMode };
 }
 
 // ===== Run All =====
@@ -331,6 +380,26 @@ async function readOptionsForPreview(filePath = null) {
   logoBytes = await ensureLogoBytesIfNeeded(logoBytes);
   const snap = getCurrentOptionsSnapshot();
   
+  // 텍스트/이미지 워터마크 선택 로직 및 검증 (프리뷰)
+  const hasText = !!(snap.text && snap.text.trim().length > 0);
+  const logoSelectedNow = !!(logo && logo.files && logo.files[0]);
+  const hasLogoBytes = !!(logoBytes && logoBytes.length > 0);
+  let watermarkMode = null;
+  if (logoSelectedNow) {
+    watermarkMode = 'image';
+  } else if (hasText) {
+    watermarkMode = 'text';
+  } else if (hasLogoBytes) {
+    watermarkMode = 'image';
+  } else {
+    throw new Error('텍스트 또는 로고 이미지를 입력/선택하세요.');
+  }
+  if (watermarkMode === 'text') {
+    logoBytes = null;
+  } else if (watermarkMode === 'image') {
+    snap.text = '';
+  }
+  
   // 특정 파일의 개별 위치 설정이 있으면 적용
   if (filePath && imagePositions.has(filePath)) {
     const imagePosition = imagePositions.get(filePath);
@@ -347,7 +416,7 @@ async function readOptionsForPreview(filePath = null) {
     position: posData
   }));
   
-  return { ...snap, logoBytes, maxWidth: 0, imagePositions: imagePositionsArray }; // 프리뷰는 내부에서 축소 렌더
+  return { ...snap, logoBytes, maxWidth: 0, imagePositions: imagePositionsArray, watermarkMode }; // 프리뷰는 내부에서 축소 렌더
 }
 
 // 각 이미지의 개별 위치 설정을 저장
@@ -970,6 +1039,8 @@ document.addEventListener('DOMContentLoaded', () => {
           console.log('Language changed to:', e.target.value); // Debug log
           window.i18n.setLanguage(e.target.value);
           localStorage.setItem('selectedLanguage', e.target.value);
+          // 레이블이 갱신된 뒤 폰트 사이즈 표시 형식을 다시 적용
+          try { updateFontSizeModeVisibility(); } catch (_) {}
         });
       }
 
@@ -981,17 +1052,21 @@ document.addEventListener('DOMContentLoaded', () => {
         if (langSelect) {
           langSelect.value = savedLanguage;
         }
+        try { updateFontSizeModeVisibility(); } catch (_) {}
       } else {
         console.log('Auto-detecting language'); // Debug log
         window.i18n.detectLanguage();
         if (langSelect) {
           langSelect.value = window.i18n.currentLanguage || 'en';
         }
+        try { updateFontSizeModeVisibility(); } catch (_) {}
       }
 
       // Initialize tooltips
       console.log('Initializing UI with language:', window.i18n.currentLanguage); // Debug log
       window.i18n.updateUI();
+      // UI 텍스트가 갱신되었으므로 폰트 사이즈 표시 형식 재적용
+      try { updateFontSizeModeVisibility(); } catch (_) {}
       
       // Test tooltip functionality
       const testElement = document.querySelector('[data-tooltip]');

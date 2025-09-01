@@ -214,11 +214,22 @@ async function computeImageComposites(baseW, baseH, m, options) {
   const boxH = clamp(baseH - m * 2, 1, baseH);
   const composites = [];
 
-  // Text
-  if (text) {
+  // 모드 결정: renderer에서 넘어올 수 있는 watermarkMode 우선
+  const normalizedText = (typeof text === 'string') ? text.trim() : '';
+  const hasText = normalizedText.length > 0;
+  const lbufPresence = normalizeBuffer(logoBytes);
+  const hasLogo = !!lbufPresence;
+  const mode = options.watermarkMode || (hasLogo ? 'image' : (hasText ? 'text' : null));
+
+  if (!mode) {
+    throw new Error('텍스트 또는 로고 이미지가 필요합니다.');
+  }
+
+  // Text (모드가 text일 때만 렌더)
+  if (mode === 'text' && hasText) {
     const effFont = effectiveFontSize(baseW, baseH, { fontSize, fontSizeMode: options.fontSizeMode });
     const rawSvg = makeTextSVG(
-      text,
+      normalizedText,
       effFont,
       clamp(Number(opacity) || 0.35, 0, 1),
       boxW,
@@ -237,9 +248,9 @@ async function computeImageComposites(baseW, baseH, m, options) {
     composites.push({ input: safeSvg, left: svgLeft, top: svgTop, _kind: 'text', _w: svgMeta.width, _h: svgMeta.height });
   }
 
-  // Logo
-  const lbuf = normalizeBuffer(logoBytes);
-  if (lbuf) {
+  // Logo (모드가 image일 때만 렌더)
+  const lbuf = lbufPresence;
+  if (mode === 'image' && lbuf) {
     const targetLogoSize = effectiveLogoSize(baseW, baseH, { logoSize, logoSizeMode });
     const pngLogo = await sharp(lbuf)
       .png()
@@ -249,7 +260,7 @@ async function computeImageComposites(baseW, baseH, m, options) {
     const lmeta = await sharp(safeLogo).metadata();
 
     let logoPosition = position === 'auto' ? 'southeast' : (position || 'southeast');
-    if (text && typeof position === 'string' && position !== 'custom') {
+    if (hasText && typeof position === 'string' && position !== 'custom') {
       switch (logoPosition) {
         case 'southeast': logoPosition = 'southwest'; break;
         case 'southwest': logoPosition = 'southeast'; break;
@@ -1013,8 +1024,20 @@ async function getWatermarkPosition(inputPath, options, previewWidth = 800) {
 
   let watermarkInfo = null;
 
-  // 로고 워터마크가 있는 경우 처리
-  if (logoBytes && logoBytes.length > 0) {
+  // 공통: 모드 결정
+  const normalizedText = (typeof text === 'string') ? text.trim() : '';
+  const hasText = normalizedText.length > 0;
+  const hasLogo = !!(logoBytes && logoBytes.length > 0);
+  const mode = options.watermarkMode || (hasLogo ? 'image' : (hasText ? 'text' : null));
+  if (!mode) {
+    throw new Error('텍스트 또는 로고 이미지가 필요합니다.');
+  }
+
+  // 로고 워터마크 처리 (image 모드)
+  if (mode === 'image') {
+    if (!(logoBytes && logoBytes.length > 0)) {
+      throw new Error('로고 이미지가 필요합니다.');
+    }
     const logoBuf = normalizeBuffer(logoBytes);
     if (logoBuf) {
       // 로고 목표 크기 계산 - 프리뷰/표시 크기와 동일 기준으로 계산(일관성)
@@ -1073,9 +1096,9 @@ async function getWatermarkPosition(inputPath, options, previewWidth = 800) {
         positionType: logoPosition
       });
     }
-  } else if (text) {
+  } else if (mode === 'text') {
     const rawSvg = makeTextSVG(
-      text,
+      normalizedText,
       effFont,
       effOpacity,
       boxW,
@@ -1191,10 +1214,20 @@ async function processOneVideo(inputPath, outputPath, options) {
 
   const overlays = [];
 
-  // Text overlay
-  if (text) {
+  // 모드 결정
+  const normalizedText = (typeof text === 'string') ? text.trim() : '';
+  const hasText = normalizedText.length > 0;
+  const lbufPresence = normalizeBuffer(logoBytes);
+  const hasLogo = !!lbufPresence;
+  const mode = options.watermarkMode || (hasLogo ? 'image' : (hasText ? 'text' : null));
+  if (!mode) {
+    throw new Error('텍스트 또는 로고 이미지가 필요합니다.');
+  }
+
+  // Text overlay (text 모드에서만)
+  if (mode === 'text' && hasText) {
     const rawSvg = makeTextSVG(
-      text,
+      normalizedText,
       effFont,
       1.0, // SVG 자체는 불투명도 1.0으로 생성
       boxW,
@@ -1215,9 +1248,9 @@ async function processOneVideo(inputPath, outputPath, options) {
     overlays.push({ path: tmp, x: left, y: top, applyAlpha: true, alpha: opacity });
   }
 
-  // Logo overlay
-  const logoBuf = normalizeBuffer(logoBytes);
-  if (logoBuf) {
+  // Logo overlay (image 모드에서만)
+  const logoBuf = lbufPresence;
+  if (mode === 'image' && logoBuf) {
     // 비디오용 로고 목표 크기 계산
     const targetLogoSize = effectiveLogoSize(baseW, baseH, { logoSize: options.logoSize, logoSizeMode: options.logoSizeMode });
     console.log('Video - Target logo size:', targetLogoSize, 'px');
@@ -1234,7 +1267,7 @@ async function processOneVideo(inputPath, outputPath, options) {
     let logoPosition = position === 'auto' ? 'southeast' : position;
     
     // 텍스트가 있는 경우 로고 위치를 조정
-    if (text && position !== 'custom') {
+    if (hasText && position !== 'custom') {
       switch(logoPosition) {
         case 'southeast':
           logoPosition = 'southwest';
@@ -1483,37 +1516,47 @@ async function getVideoWatermarkPosition(inputPath, options, previewWidth = 800)
 
   const effFont = effectiveFontSize(targetW, targetH, { fontSize: frameOptions.fontSize, fontSizeMode: frameOptions.fontSizeMode });
 
-  if (!frameOptions.text) {
+  // 모드 결정
+  const normalizedText = (typeof frameOptions.text === 'string') ? frameOptions.text.trim() : '';
+  const hasText = normalizedText.length > 0;
+  const hasLogo = !!(frameOptions.logoBytes && frameOptions.logoBytes.length > 0);
+  const mode = frameOptions.watermarkMode || (hasLogo ? 'image' : (hasText ? 'text' : null));
+  if (!mode) {
     return { left: 0, top: 0, width: 0, height: 0, imageWidth: targetW, imageHeight: targetH };
   }
 
-  const rawSvg = makeTextSVG(
-    frameOptions.text,
-    effFont,
-    1.0,
-    boxW,
-    frameOptions.textColor,
-    frameOptions.fontFamily,
-    { color: frameOptions.shadowColor, offsetX: frameOptions.shadowOffsetX, offsetY: frameOptions.shadowOffsetY, blur: frameOptions.shadowBlur },
-    { color: frameOptions.outlineColor, width: frameOptions.outlineWidth },
-    targetW,
-    targetW
-  );
-  const safeSvg = await fitOverlayInside(rawSvg, boxW, boxH);
-  const svgMeta = await sharp(safeSvg).metadata();
+  if (mode === 'text') {
+    const rawSvg = makeTextSVG(
+      normalizedText,
+      effFont,
+      1.0,
+      boxW,
+      frameOptions.textColor,
+      frameOptions.fontFamily,
+      { color: frameOptions.shadowColor, offsetX: frameOptions.shadowOffsetX, offsetY: frameOptions.shadowOffsetY, blur: frameOptions.shadowBlur },
+      { color: frameOptions.outlineColor, width: frameOptions.outlineWidth },
+      targetW,
+      targetW
+    );
+    const safeSvg = await fitOverlayInside(rawSvg, boxW, boxH);
+    const svgMeta = await sharp(safeSvg).metadata();
 
-  let pos = frameOptions.position || 'southeast';
-  if (pos === 'auto') pos = 'southeast';
-  const { left, top } = computeLeftTop(targetW, targetH, svgMeta.width || 0, svgMeta.height || 0, pos, m);
+    let pos = frameOptions.position || 'southeast';
+    if (pos === 'auto') pos = 'southeast';
+    const { left, top } = computeLeftTop(targetW, targetH, svgMeta.width || 0, svgMeta.height || 0, pos, m);
 
-  return {
-    left,
-    top,
-    width: svgMeta.width || 0,
-    height: svgMeta.height || 0,
-    imageWidth: targetW,
-    imageHeight: targetH,
-  };
+    return {
+      left,
+      top,
+      width: svgMeta.width || 0,
+      height: svgMeta.height || 0,
+      imageWidth: targetW,
+      imageHeight: targetH,
+    };
+  }
+
+  // image 모드: 현재 이 API는 텍스트 기준 크기만 반환하므로 로고만인 경우 0 반환
+  return { left: 0, top: 0, width: 0, height: 0, imageWidth: targetW, imageHeight: targetH };
 }
 
 module.exports.getVideoWatermarkPosition = getVideoWatermarkPosition;
