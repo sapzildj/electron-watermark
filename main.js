@@ -2,6 +2,10 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+
+// Sharp 환경 변수 설정
+process.env.SHARP_IGNORE_GLOBAL_LIBVIPS = '1';
+
 const { processFolderImages, generatePreviewBuffer, processFolderVideos, extractVideoFrame, getVideoWatermarkPosition } = require('./src/watermark');
 const fontList = require('font-list');
 
@@ -16,13 +20,17 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
-    title: 'Watermark'
+    title: 'Aqua Watermark',
+    icon: path.join(__dirname, 'assets', 'icons', 'icon-256x256.png'),
+    titleBarStyle: 'hiddenInset' // macOS에서 더 나은 타이틀바
   });
 
   mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
 }
 
 app.whenReady().then(() => {
+  // macOS에서 앱 이름 설정
+  app.setName('Aqua Watermark');
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

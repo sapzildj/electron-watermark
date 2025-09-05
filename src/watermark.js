@@ -1,7 +1,14 @@
 // src/watermark.js
 const fs = require('fs');
 const path = require('path');
-const sharp = require('sharp');
+let sharp;
+try {
+  sharp = require('sharp');
+} catch (error) {
+  console.error('Sharp 로딩 실패:', error.message);
+  // Sharp 대신 사용할 대체 라이브러리
+  sharp = null;
+}
 const os = require('os');
 const { execSync } = require('child_process');
 const ffmpeg = require('fluent-ffmpeg');
