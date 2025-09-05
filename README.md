@@ -127,13 +127,13 @@ npm run build:linux
 You may see the following security warning when running the app for the first time:
 
 ```
-'Electron Watermark.app' cannot be opened
+'Aqua Watermark.app' cannot be opened
 Apple cannot check it for malicious software that could harm your Mac or compromise your privacy.
 ```
 
 **To resolve:**
 1. Go to **System Preferences** → **Security & Privacy** → **Security** tab
-2. Look for the message: *"Mac blocked 'Electron Watermark.app' to protect your Mac"*
+2. Look for the message: *"Mac blocked 'Aqua Watermark.app' to protect your Mac"*
 3. Click **"Open Anyway"** button
 4. The app will run normally
 
@@ -165,4 +165,6 @@ Bug reports, feature suggestions, and pull requests are welcome!
 ## 📞 Support
 
 If you have questions or suggestions about the project, please create an issue.
+
+e.
 

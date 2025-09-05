@@ -1,6 +1,6 @@
 # Contributing Guidelines
 
-Thank you for your interest in contributing to the Electron Watermark project!
+Thank you for your interest in contributing to the Aqua Watermark project!
 
 ## 🚀 Getting Started
 
