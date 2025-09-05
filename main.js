@@ -5,6 +5,7 @@ const fs = require('fs');
 
 // Sharp 환경 변수 설정
 process.env.SHARP_IGNORE_GLOBAL_LIBVIPS = '1';
+process.env.SHARP_LIBVIPS_VERSION = '8.15.0';
 
 const { processFolderImages, generatePreviewBuffer, processFolderVideos, extractVideoFrame, getVideoWatermarkPosition } = require('./src/watermark');
 const fontList = require('font-list');

@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.1] - 2025-09-05
+
+### Added
+- HEIC format support
+
+### Fixed
+- Fixed a bug that occurred when selecting a watermark image
+
+### Changed
+- Improved UI for separate selection of watermark image and text
+
+---
+
 ## [1.0.0] - 2024-12-19
 
 ### Added

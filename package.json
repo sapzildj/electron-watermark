@@ -1,6 +1,6 @@
 {
   "name": "aqua-watermark",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Aqua Watermark - Beautiful watermark tool with friendly interface",
   "author": "Aqua Team",
   "private": true,
@@ -11,7 +11,8 @@
     "build:mac": "electron-builder --mac",
     "build:win": "electron-builder --win",
     "build:linux": "electron-builder --linux",
-    "rebuild": "npx @electron/rebuild"
+    "rebuild": "npx @electron/rebuild",
+    "postinstall": "electron-builder install-app-deps"
   },
   "build": {
     "appId": "com.aqua.watermark",
@@ -26,6 +27,12 @@
       "src/**/*",
       "node_modules/**/*"
     ],
+    "asar": true,
+    "asarUnpack": [
+      "**/*.node",
+      "**/sharp/**/*"
+    ],
+    "npmRebuild": true,
     "mac": {
       "category": "public.app-category.utilities",
       "icon": "assets/icons/icon.icns",

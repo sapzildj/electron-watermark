@@ -8,7 +8,7 @@ https://github.com/user-attachments/assets/d05e1908-c7c7-474e-b6a0-ff6ed307575c
 
 ## 🚀 Features
 
-- **Image Watermarking**: Support for JPG, PNG, WebP and other image formats
+- **Image Watermarking**: Support for JPG, PNG, WebP, HEIC and other image formats
 - **Video Watermarking**: Support for MP4, MOV, MKV and other video formats
 - **Watermark Customization**: Adjust text, font, size, position, and transparency
 - **Batch Processing**: Process all files in a folder at once
@@ -165,3 +165,4 @@ Bug reports, feature suggestions, and pull requests are welcome!
 ## 📞 Support
 
 If you have questions or suggestions about the project, please create an issue.
+
