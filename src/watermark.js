@@ -8,14 +8,14 @@ const ffmpeg = require('fluent-ffmpeg');
 let ffmpegPath = null;
 let ffprobePath = null;
 try {
-  ffmpegPath = require('ffmpeg-static');
+  ffmpegPath = require('ffmpeg-static').replace('app.asar', 'app.asar.unpacked');
   // console.log('FFmpeg path found:', ffmpegPath);
 } catch (e) {
   console.log('FFmpeg static not found:', e.message);
 }
 try {
   const ffprobeStatic = require('ffprobe-static');
-  ffprobePath = ffprobeStatic.path;
+  ffprobePath = ffprobeStatic.path.replace('app.asar', 'app.asar.unpacked');
   // console.log('FFprobe path found:', ffprobePath);
 } catch (e) {
   console.log('FFprobe static not found:', e.message);

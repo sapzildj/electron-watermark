@@ -1,6 +1,6 @@
 {
   "name": "aqua-watermark",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Aqua Watermark - Beautiful watermark tool with friendly interface",
   "author": "Aqua Team",
   "private": true,
@@ -30,7 +30,9 @@
     "asar": true,
     "asarUnpack": [
       "**/*.node",
-      "**/sharp/**/*"
+      "**/sharp/**/*",
+      "**/ffmpeg-static/**/*",
+      "**/ffprobe-static/**/*"
     ],
     "npmRebuild": true,
     "mac": {
@@ -47,6 +49,7 @@
       ]
     },
     "win": {
+      "icon": "assets/icons/icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -79,6 +82,7 @@
   "devDependencies": {
     "electron": "^31.0.0",
     "electron-builder": "^24.9.1",
-    "electron-rebuild": "^3.2.9"
+    "electron-rebuild": "^3.2.9",
+    "png-to-ico": "^2.1.8"
   }
 }
