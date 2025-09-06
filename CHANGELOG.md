@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.2] - 2025-09-06
+
+### Fixed
+- Fixed video watermarking not working on packaged macOS application due to incorrect ffmpeg path.
+- Fixed Windows packaging failure by generating and including an `.ico` icon file.
+- Fixed the application icon being generated incorrectly, now using the provided `original-image.png`.
+
+### Changed
+- Consolidated all icon generation logic into a single script to prevent conflicts.
+
 ## [1.0.1] - 2025-09-05
 
 ### Added
